@@ -1,6 +1,7 @@
 #include "LLVMSPIRVLib/LLVMSPIRVLib.h"
 #include "fmt/color.h"
 #include "fmt/core.h"
+#include "spirv-tools/optimizer.hpp"
 #include "clang/CodeGen/CodeGenAction.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
@@ -17,7 +18,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <ios>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -38,11 +38,27 @@ static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
 static cli::list<string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
 static cli::opt<string> OutputFileName("o", cli::desc("Output Filename"), cli::init("a.out"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
+static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
+static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
+static cli::list<string> Warnings(cli::Prefix, "W", cli::desc("Enable or disable a warning in Clang"), cli::ZeroOrMore);
+static cli::list<std::string> Includes(cli::Prefix, "I", cli::desc("Add a directory to be searched for header files."), cli::ZeroOrMore);
+static cli::list<std::string> Defines(cli::Prefix, "D", cli::desc("Define a #define directive."), cli::ZeroOrMore);
+
+namespace openclc {
+enum OptLevel {
+    O0,
+    O1,
+    O2,
+    O3,
+};
+};
 
 // library based equivalent to `clang -c -emit-llvm`.
 // Kills process with helpful messages if there are compilation errors
 // From https://github.com/google/clspv/blob/2776a72da17dfffdd1680eeaff26a8bebdaa60f7/lib/Compiler.cpp#L1079
 unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName);
+void Optimize(openclc::OptLevel optLevel = openclc::O3);
+/// String containing the contents of opencl_c.h that defines OpenCL builtin functions
 extern const char* opencl_c_h_data;
 extern size_t opencl_c_h_size;
 
@@ -67,12 +83,12 @@ int main(int argc, const char** argv)
         string filePath = filesystem::absolute(fileName);
 
         if (Verbose)
-            fmt::print("Debug: Compilation of {} ", filePath);
+            fmt::print("Debug: Compilation of {}\n", filePath);
 
         mods.push_back(SourceToModule(ctx, filePath));
 
         if (Verbose)
-            fmt::print(fg(fmt::color::green), "success\n", filePath);
+            fmt::print(fg(fmt::color::green), "Debug: Success\n\n", filePath);
     }
 
     unique_ptr<llvm::Module> mod(mods.back().release());
@@ -96,6 +112,12 @@ int main(int argc, const char** argv)
         fmt::print(err, "{}\n", llvmSpirvCompilationErrors);
     } else if (Verbose) {
         fmt::print("Debug: Emitted `{}` Successfully\n", OutputFileName);
+    }
+
+    Optimize();
+
+    if (Verbose) {
+        fmt::print("Debug: `{}` Optimized Successfully\n", OutputFileName);
     }
 
     return !success;
@@ -125,6 +147,9 @@ SourceToModule(llvm::LLVMContext& ctx, string& fileName)
     clang::CompilerInstance clangInstance;
     clang::FrontendInputFile clSrcFile(fileName, clang::InputKind(clang::Language::OpenCL)); // TODO: decide language based on `.cl` or `.clpp` exentsion
 
+    // warnings to disable
+    clangInstance.getDiagnosticOpts().Warnings.push_back("no-unsafe-buffer-usage");
+
     // clang compiler instance options
     // diagnostics
     string log;
@@ -132,8 +157,8 @@ SourceToModule(llvm::LLVMContext& ctx, string& fileName)
     clangInstance.createDiagnostics(
         new clang::TextDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
         true);
-    clangInstance.getDiagnostics().setEnableAllWarnings(false); // TODO: true if -Werror, otherwise false
-    clangInstance.getDiagnostics().setWarningsAsErrors(false);
+    clangInstance.getDiagnostics().setEnableAllWarnings(Wall);
+    clangInstance.getDiagnostics().setWarningsAsErrors(Werror);
 
     // input
     clangInstance.getFrontendOpts().Inputs.push_back(clSrcFile);
@@ -146,7 +171,7 @@ SourceToModule(llvm::LLVMContext& ctx, string& fileName)
     clangInstance.createFileManager();
     clangInstance.createSourceManager(clangInstance.getFileManager());
 
-    // language options
+    // language options, copied from CLSPV
     // -std=CL2.0 by default.
     clangInstance.getLangOpts().C99 = true;
     clangInstance.getLangOpts().RTTI = false;
@@ -180,12 +205,20 @@ SourceToModule(llvm::LLVMContext& ctx, string& fileName)
     clang::FileEntryRef opencl_c_h_ref = clangInstance.getFileManager().getVirtualFileRef("include/opencl-c.h", opencl_c_h_buffer->getBufferSize(), 0);
     clangInstance.getSourceManager().overrideFileContents(opencl_c_h_ref, std::move(opencl_c_h_buffer));
 
+    for (auto define : Defines) {
+        clangInstance.getPreprocessorOpts().addMacroDef(define);
+    }
+
+    for (auto include : Includes) {
+        clangInstance.getHeaderSearchOpts().AddPath(include, clang::frontend::After, false, false);
+    }
+
     // Get llvm::Module from `clangInstance`
     clang::EmitLLVMOnlyAction action(&ctx);
 
     bool success = action.BeginSourceFile(clangInstance, clSrcFile);
     if (!success) {
-        fmt::print(err, "\nPreparation for file '{}' failed\n", fileName);
+        fmt::print(err, "Preparation for file '{}' failed\n", fileName);
         exit(1);
     }
 
@@ -195,10 +228,33 @@ SourceToModule(llvm::LLVMContext& ctx, string& fileName)
     clang::DiagnosticConsumer* const consumer = clangInstance.getDiagnostics().getClient();
     consumer->finish();
 
-    if ((consumer->getNumWarnings() > 0) || (consumer->getNumErrors() > 0)) {
-        fmt::print(err, "\n{}\n", log);
+    if ((consumer->getNumWarnings() > 0) || (consumer->getNumErrors() > 0))
+        fmt::print(err, "{}", log);
+    if (consumer->getNumErrors() > 0)
         exit(1);
-    }
 
     return action.takeModule();
+}
+
+/// Applies Optimization level to binary at `OutputFileName`
+/// Default all optimizations are enabled, `O3`
+void Optimize(openclc::OptLevel optLevel)
+{
+    if (optLevel == openclc::O0) {
+        return;
+    }
+
+    vector<uint32_t> optBinary;
+    { // force drop the file lock on OutputFileName
+        ifstream unoptBinaryIfstream(OutputFileName);
+        vector<uint8_t> unoptBinary((istream_iterator<uint8_t>(unoptBinaryIfstream)), {});
+
+        assert(unoptBinary.size() % 4 == 0 && "Tried to optimize SPV binary with size in bytes not divisible by 4");
+
+        spvtools::Optimizer opt(SPV_ENV_OPENCL_2_0); // TODO: change this with arg
+        opt.Run(reinterpret_cast<uint32_t*>(unoptBinary.data()), unoptBinary.size() / 4, &optBinary);
+    }
+
+    ofstream optBinaryOfStream(OutputFileName);
+    optBinaryOfStream.write(reinterpret_cast<const char*>(optBinary.data()), optBinary.size() * 4);
 }

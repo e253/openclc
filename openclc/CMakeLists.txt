@@ -185,6 +185,8 @@ target_link_libraries(openclc
     #${CMAKE_CURRENT_BINARY_DIR}/libopencl_headers.a
     opencl_headers
     LLVMSPIRVLib
+    SPIRV-Tools-opt
+    SPIRV-Tools
 )
 
 install(TARGETS openclc)
