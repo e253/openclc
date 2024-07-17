@@ -79,9 +79,3 @@ All required libraries are a part of the executable!
 3. `./build-deps.sh <zig-target-triple> <mcpu>`
 4. `./build-openclc.sh <zig-target-triple> <mcpu>`
 5. `./<zig-target-triple>-<mcpu>/bin/openclc`
-
-
-# Todos
-1. Add -O0 ... -O3 flags using SPIRV-Opt
-2. Add -Werror flag
-3. SPIRV-Tools entrypoints as subcommands: `openclc as <flags>` --> `spirv-as <flags>`, `openclc dis` --> `spirv-dis`, etc

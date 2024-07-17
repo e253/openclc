@@ -26,7 +26,7 @@ cd "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
 cmake "$ROOTDIR/openclc" -G Ninja \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
-  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_BUILD_TYPE="$3" \
   -DCMAKE_CROSSCOMPILING=True \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \

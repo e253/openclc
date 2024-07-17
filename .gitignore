@@ -3,3 +3,4 @@ out
 compile_commands.json
 experiments
 a.out
+*.spv
