@@ -12,7 +12,10 @@ jobs:
       - name: Install Clang/LLVM 18 
         run: |
           chmod +x ./llvm.sh
-          sudo ./llvm.sh 18 all 
+          sudo ./llvm.sh 18 all
+      
+      - name: Install Ninja
+        run: sudo apt install ninja
 
       # TODO: Add caching to be nice to ziglang.org and to save time
       - name: Install ZVM and Zig
