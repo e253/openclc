@@ -32,14 +32,14 @@ jobs:
           key: build-llvm-x86_64-linux-musl-x86_64
         
       - name: Build Clang/LLVM
-        if: ! steps.llvm-cache.outputs.cache-hit
+        if: '!steps.llvm-cache.outputs.cache-hit'
         run: |
           cd $GITHUB_WORKSPACE/openclc
           chmod +x ./build-deps.sh
           ./build-deps.sh x86_64-linux-musl x86_64
         
       - name: Save Clang/LLVM to Cache
-        if: ! steps.llvm-cache.outputs.cache-hit
+        if: '!steps.llvm-cache.outputs.cache-hit'
         uses: actions/cache/save@3
         with: 
           path: $GITHUB_WORKSPACE/openclc/out/build-llvm-x86_64-linux-musl-x86_64
