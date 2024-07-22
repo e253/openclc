@@ -17,10 +17,10 @@ jobs:
       # TODO: Add caching to be nice to ziglang.org and to save time
       - name: Install ZVM and Zig
         run: |
-          wget https://github.com/tristanisham/zvm/releases/download/v0.7.3/zvm-linux-amd64.tar -O zvm.tar \
+          wget https://github.com/tristanisham/zvm/releases/download/v0.7.3/zvm-linux-amd64.tar -O zvm.tar
           mkdir -p $HOME/.zvm/self
-          tar -xf zvm.tar -C $HOME/.zvm/self \
-          rm zvm.tar \
+          tar -xf zvm.tar -C $HOME/.zvm/self
+          rm zvm.tar
           $HOME/.zvm/self/zvm i 0.13.0
 
       # Flow from https://github.com/marketplace/actions/tool-cache
