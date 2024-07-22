@@ -28,20 +28,19 @@ jobs:
         id: llvm-cache
         uses: actions/cache/restore@v3
         with:
-          path: $GITHUB_WORKSPACE/openclc/out/build-llvm-x86_64-linux-musl-x86_64
+          path: $GITHUB_WORKSPACE/out/build-llvm-x86_64-linux-musl-x86_64
           key: build-llvm-x86_64-linux-musl-x86_64
         
       - name: Build Clang/LLVM
         if: '!steps.llvm-cache.outputs.cache-hit'
         run: |
-          cd $GITHUB_WORKSPACE/openclc
-          chmod +x ./build-deps.sh
-          ./build-deps.sh x86_64-linux-musl x86_64
+          chmod +x $GITHUB_WORKSPACE/build-deps.sh
+          $GITHUB_WORKSPACE/build-deps.sh x86_64-linux-musl x86_64
         
-      - name: Save Clang/LLVM to Cache
+      - name: Save Clang/LLVM to cache
         if: '!steps.llvm-cache.outputs.cache-hit'
         uses: actions/cache/save@v3
         with: 
-          path: $GITHUB_WORKSPACE/openclc/out/build-llvm-x86_64-linux-musl-x86_64
+          path: $GITHUB_WORKSPACE/out/build-llvm-x86_64-linux-musl-x86_64
           key: build-llvm-x86_64-linux-musl-x86_64
 
