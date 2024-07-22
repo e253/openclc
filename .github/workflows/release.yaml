@@ -1,0 +1,47 @@
+name: Release OpenCLC Binary
+on: workflow_dispatch
+    
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # TODO: Add caching to be nice to apt.llvm.org and to save time
+      - name: Install Clang/LLVM 18 
+        run: |
+          chmod +x ./llvm.sh
+          ./llvm.sh 18 all 
+
+      # TODO: Add caching to be nice to ziglang.org and to save time
+      - name: Install ZVM and Zig
+        run: |
+          wget https://github.com/tristanisham/zvm/releases/download/v0.7.3/zvm-linux-amd64.tar -O zvm.tar \
+          mkdir -p $HOME/.zvm/self
+          tar -xf zvm.tar -C $HOME/.zvm/self \
+          rm zvm.tar \
+          $HOME/.zvm/self/zvm i 0.13.0
+
+      # Flow from https://github.com/marketplace/actions/tool-cache
+      - name: Read cache for Clang/LLVM build
+        id: llvm-cache
+        uses: actions/cache/restore@v3
+        with:
+          path: $GITHUB_WORKSPACE/openclc/out/build-llvm-x86_64-linux-musl-x86_64
+          key: build-llvm-x86_64-linux-musl-x86_64
+        
+      - name: Build Clang/LLVM
+        if: ! steps.llvm-cache.outputs.cache-hit
+        run: |
+          cd $GITHUB_WORKSPACE/openclc
+          chmod +x ./build-deps.sh
+          ./build-deps.sh x86_64-linux-musl x86_64
+        
+      - name: Save Clang/LLVM to Cache
+        if: ! steps.llvm-cache.outputs.cache-hit
+        uses: actions/cache/save@3
+        with: 
+          path: $GITHUB_WORKSPACE/openclc/out/build-llvm-x86_64-linux-musl-x86_64
+          key: build-llvm-x86_64-linux-musl-x86_64
+

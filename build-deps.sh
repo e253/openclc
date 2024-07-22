@@ -23,7 +23,7 @@ case $TARGET_OS_CMAKE in
 esac
 
 # Now we have Zig as a cross compiler.
-ZIG="/home/esteere/.zvm/bin/zig"
+ZIG="$HOME/.zvm/bin/zig"
 
 # First cross compile zlib for the target, as we need the LLVM linked into
 # the final zig binary to have zlib support enabled.
