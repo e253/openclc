@@ -12,7 +12,7 @@ jobs:
       - name: Install Clang/LLVM 18 
         run: |
           chmod +x ./llvm.sh
-          ./llvm.sh 18 all 
+          sudo ./llvm.sh 18 all 
 
       # TODO: Add caching to be nice to ziglang.org and to save time
       - name: Install ZVM and Zig
