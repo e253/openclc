@@ -40,7 +40,7 @@ jobs:
         
       - name: Save Clang/LLVM to Cache
         if: '!steps.llvm-cache.outputs.cache-hit'
-        uses: actions/cache/save@3
+        uses: actions/cache/save@v3
         with: 
           path: $GITHUB_WORKSPACE/openclc/out/build-llvm-x86_64-linux-musl-x86_64
           key: build-llvm-x86_64-linux-musl-x86_64
