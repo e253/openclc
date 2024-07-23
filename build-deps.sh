@@ -27,7 +27,7 @@ ZIG="$HOME/.zvm/bin/zig"
 
 mkdir -p "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
-cmake "$ROOTDIR/llvm" -G Ninja \
+cmake "$ROOTDIR/third_party/llvm" -G Ninja \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -83,7 +83,7 @@ ninja install
 
 mkdir -p "$ROOTDIR/out/build-spv-tools-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-spv-tools-$TARGET-$MCPU"
-cmake "$ROOTDIR/SPIRV-Tools" -G Ninja \
+cmake "$ROOTDIR/third_party/SPIRV-Tools" -G Ninja \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -94,13 +94,13 @@ cmake "$ROOTDIR/SPIRV-Tools" -G Ninja \
   -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
   -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DSPIRV_SKIP_TESTS=ON \
-  -DSPIRV-Headers_SOURCE_DIR="$ROOTDIR/SPIRV-Headers"
+  -DSPIRV-Headers_SOURCE_DIR="$ROOTDIR/third_party/SPIRV-Headers"
 ninja install
 
 
 mkdir -p "$ROOTDIR/out/build-spv-translator-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-spv-translator-$TARGET-$MCPU"
-cmake "$ROOTDIR/SPIRV-LLVM-Translator" -G Ninja \
+cmake "$ROOTDIR/third_party/SPIRV-LLVM-Translator" -G Ninja \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_BUILD_TYPE=Release \
@@ -112,5 +112,5 @@ cmake "$ROOTDIR/SPIRV-LLVM-Translator" -G Ninja \
   -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DLLVM_DIR="$ROOTDIR/out/$TARGET-$MCPU/lib/cmake/llvm" \
   -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
-  -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/SPIRV-Headers"
+  -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/third_party/SPIRV-Headers"
 ninja install
