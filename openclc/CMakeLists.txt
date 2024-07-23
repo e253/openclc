@@ -14,15 +14,15 @@ include(AddLLVM)
 include(LLVM-Config)
 
 set(FMT_SOURCES 
-  ${CMAKE_CURRENT_LIST_DIR}/../fmt/fmt.cc 
-  ${CMAKE_CURRENT_LIST_DIR}/../fmt/format.cc 
-  ${CMAKE_CURRENT_LIST_DIR}/../fmt/os.cc
+  ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/fmt.cc 
+  ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/format.cc 
+  ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/os.cc
 )
 
 add_library(fmt STATIC ${FMT_SOURCES})
 target_include_directories(fmt
   PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/../fmt/include
+    ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/include
 )
 
 add_custom_command(
@@ -40,7 +40,7 @@ add_executable(openclc openclc.cpp)
 target_include_directories(openclc
   PRIVATE
     ${CMAKE_INSTALL_PREFIX}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../fmt/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/fmt/include
 )
 
 # possibly redundant
