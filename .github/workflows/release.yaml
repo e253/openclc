@@ -8,14 +8,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Load APT Dependencies from Cache
-        id: apt-cache
-        uses: actions/cache/restore@v3
-        with:
-          path: |
-            /usr/lib/llvm-18
-            /usr/bin/ninja
-          key: clang-llvm-ninja-apt-install
+      # Permissions error restoring /usr/lib/llvm-18
+      # - name: Load APT Dependencies from Cache
+      #   id: apt-cache
+      #   uses: actions/cache/restore@v3
+      #   with:
+      #     path: |
+      #       /usr/lib/llvm-18
+      #       /usr/bin/ninja
+      #     key: clang-llvm-ninja-apt-install
 
       - name: Install APT Dependencies
         if: '!steps.apt-cache.output.cache-hit'
@@ -24,14 +25,14 @@ jobs:
           sudo ./llvm.sh 18 all
           sudo apt install ninja-build
       
-      - name: Store APT Dependencies to Cache
-        if: '!steps.apt-cache.output.cache-hit'
-        uses: actions/cache/save@v3
-        with:
-          path: |
-            /usr/lib/llvm-18
-            /usr/bin/ninja
-          key: clang-llvm-ninja-apt-install
+      # - name: Store APT Dependencies to Cache
+      #   if: '!steps.apt-cache.output.cache-hit'
+      #   uses: actions/cache/save@v3
+      #   with:
+      #     path: |
+      #       /usr/lib/llvm-18
+      #       /usr/bin/ninja
+      #     key: clang-llvm-ninja-apt-install
       
       - name: Load Zig from Cache
         id: zvm-zig-cache
@@ -66,6 +67,8 @@ jobs:
             mcpu: x86_64
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Load Cache
         id: llvm-build-cache
         uses: actions/cache/restore@v3
