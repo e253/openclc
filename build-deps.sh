@@ -22,8 +22,11 @@ case $TARGET_OS_CMAKE in
   native) TARGET_OS_CMAKE="";;
 esac
 
-# Now we have Zig as a cross compiler.
 ZIG="$HOME/.zvm/bin/zig"
+LLVM_AR="${LLVM_AR:-/usr/lib/llvm-18/bin/llvm-ar}"
+LLVM_RANLIB="${LLVM_RANLIB:-/usr/lib/llvm-18/bin/llvm-ranlib}"
+LLVM_TBLGEN="${LLVM_TBLGEN:-/usr/lib/llvm-18/bin/llvm-tblgen}"
+CLANG_TBLGEN="${CLANG_TBLGEN:-/usr/lib/llvm-18/bin/clang-tblgen}"
 
 mkdir -p "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
@@ -36,8 +39,8 @@ cmake "$ROOTDIR/third_party/llvm" -G Ninja \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
-  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
+  -DCMAKE_AR="$LLVM_AR" \
+  -DCMAKE_RANLIB="$LLVM_RANLIB" \
   -DLLVM_ENABLE_PROJECTS="clang" \
   -DLLVM_ENABLE_BINDINGS=OFF \
   -DLLVM_ENABLE_LIBXML2=OFF \
@@ -74,8 +77,8 @@ cmake "$ROOTDIR/third_party/llvm" -G Ninja \
   -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
   -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
   -DCLANG_TOOL_LIBCLANG_BUILD=OFF \
-  -DLLVM_TABLEGEN="/usr/lib/llvm-18/bin/llvm-tblgen" \
-  -DCLANG_TABLEGEN="/usr/lib/llvm-18/bin/clang-tblgen"
+  -DLLVM_TABLEGEN="$LLVM_TBLGEN" \
+  -DCLANG_TABLEGEN="$CLANG_TBLGEN"
 # RPATH change breaks install becuase we have static executables
 find . -type f -name "*_install.cmake" -exec sed -i '/file(RPATH_CHANGE/,+3d' {} \;
 ninja install
@@ -91,8 +94,8 @@ cmake "$ROOTDIR/third_party/SPIRV-Tools" -G Ninja \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
-  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
+  -DCMAKE_AR="$LLVM_AR" \
+  -DCMAKE_RANLIB="$LLVM_RANLIB" \
   -DSPIRV_SKIP_TESTS=ON \
   -DSPIRV-Headers_SOURCE_DIR="$ROOTDIR/third_party/SPIRV-Headers"
 ninja install
@@ -108,8 +111,8 @@ cmake "$ROOTDIR/third_party/SPIRV-LLVM-Translator" -G Ninja \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
-  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
+  -DCMAKE_AR="$LLVM_AR" \
+  -DCMAKE_RANLIB="$LLVM_RANLIB" \
   -DLLVM_DIR="$ROOTDIR/out/$TARGET-$MCPU/lib/cmake/llvm" \
   -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
   -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/third_party/SPIRV-Headers"

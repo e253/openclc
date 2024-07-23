@@ -6,19 +6,12 @@ set(CLANG_LLVM_VERSION 18.1.7)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(LLVM ${CLANG_LLVM_VERSION} REQUIRED)
-set(CMAKE_MODULE_PATH
-    ${CMAKE_MODULE_PATH}
-    ${LLVM_CMAKE_DIR}
-  )
-include(AddLLVM)
-include(LLVM-Config)
 
 set(FMT_SOURCES 
   ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/fmt.cc 
   ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/format.cc 
   ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/os.cc
 )
-
 add_library(fmt STATIC ${FMT_SOURCES})
 target_include_directories(fmt
   PRIVATE
@@ -43,19 +36,12 @@ target_include_directories(openclc
     ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/fmt/include
 )
 
-# possibly redundant
 target_link_directories(openclc PUBLIC ${CMAKE_INSTALL_PREFIX}/lib)
 
 add_definitions("-fno-rtti")
 
-#set(OPENCL_BASE_H_PATH "${CMAKE_CURRENT_LIST_DIR}/../")
-#configure_file(opencl_headers.zig.in opencl_headers.zig @ONLY) 
-
-
-# Kalasnikov approach: link everything and rely on DCE to get rid of what's not needed
 target_link_libraries(openclc
   PRIVATE
-
     # LLVMAggressiveInstCombine
     # LLVMAnalysis
     # LLVMAsmParser
@@ -182,7 +168,6 @@ target_link_libraries(openclc
     # clangTooling
 
     fmt
-    #${CMAKE_CURRENT_BINARY_DIR}/libopencl_headers.a
     opencl_headers
     LLVMSPIRVLib
     SPIRV-Tools-opt

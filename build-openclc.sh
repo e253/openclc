@@ -23,13 +23,12 @@ ZIG="/home/esteere/.zvm/bin/zig"
 
 mkdir -p "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
-cmake "$ROOTDIR/openclc" -G Ninja \
+cmake "$ROOTDIR/openclc" \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_BUILD_TYPE="$3" \
   -DCMAKE_CROSSCOMPILING=True \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
-  -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_AR="/usr/bin/llvm-ar-18" \
   -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
@@ -37,4 +36,4 @@ cmake "$ROOTDIR/openclc" -G Ninja \
 
 cp "$ROOTDIR/out/build-openclc-$TARGET-$MCPU/compile_commands.json" "$ROOTDIR/compile_commands.json"
 
-ninja install
+make install

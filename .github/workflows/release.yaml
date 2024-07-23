@@ -3,37 +3,17 @@ on: workflow_dispatch
     
 
 jobs:
-  install-build-tool-dependencies:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-linux-musl
+            mcpu: x86_64
+
     steps:
       - uses: actions/checkout@v4
 
-      # Permissions error restoring /usr/lib/llvm-18
-      # - name: Load APT Dependencies from Cache
-      #   id: apt-cache
-      #   uses: actions/cache/restore@v3
-      #   with:
-      #     path: |
-      #       /usr/lib/llvm-18
-      #       /usr/bin/ninja
-      #     key: clang-llvm-ninja-apt-install
-
-      - name: Install APT Dependencies
-        if: '!steps.apt-cache.output.cache-hit'
-        run: |
-          chmod +x ./llvm.sh
-          sudo ./llvm.sh 18 all
-          sudo apt install ninja-build
-      
-      # - name: Store APT Dependencies to Cache
-      #   if: '!steps.apt-cache.output.cache-hit'
-      #   uses: actions/cache/save@v3
-      #   with:
-      #     path: |
-      #       /usr/lib/llvm-18
-      #       /usr/bin/ninja
-      #     key: clang-llvm-ninja-apt-install
-      
       - name: Load Zig from Cache
         id: zvm-zig-cache
         uses: actions/cache/restore@v3
@@ -56,18 +36,6 @@ jobs:
         with:
           path: /home/runner/.zvm
           key: zvm-zig-13
-  
-  build-openclc-dependencies:
-    runs-on: ubuntu-latest
-    needs: install-build-tool-dependencies
-    strategy:
-      matrix:
-        include:
-          - target: x86_64-linux-musl
-            mcpu: x86_64
-
-    steps:
-      - uses: actions/checkout@v4
 
       - name: Load Cache
         id: llvm-build-cache
@@ -75,6 +43,15 @@ jobs:
         with:
           path: $GITHUB_WORKSPACE/out/${{ matrix.target }}-${{ matrix.mcpu }}
           key: build-deps-${{ matrix.target }}-${{ matrix.mcpu }}
+      
+      # no caching for apt, but these tools are only needed for openclc dependencies
+      # only install if the build-deps cache misses
+      - name: Install APT Dependencies
+        if: '!steps.llvm-build-cache.output.cache-hit'
+        run: |
+          chmod +x ./llvm.sh
+          sudo ./llvm.sh 18 all
+          sudo apt install ninja-build
         
       - name: Build LLVM and Dependencies
         if: '!steps.llvm-build-cache.outputs.cache-hit'
