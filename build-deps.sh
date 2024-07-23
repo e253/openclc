@@ -100,9 +100,8 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/bin/llvm-rc-18" \
-  -DCMAKE_AR="/usr/bin/llvm-ar-18" \
-  -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
+  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
+  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DLLVM_ENABLE_PROJECTS="clang" \
   -DLLVM_ENABLE_BINDINGS=OFF \
   -DLLVM_ENABLE_LIBXML2=OFF \
@@ -124,7 +123,6 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
   -DLLVM_INCLUDE_BENCHMARKS=OFF \
   -DLLVM_INCLUDE_DOCS=OFF \
-  -DLLVM_DEFAULT_TARGET_TRIPLE="spirv64-unknown-unknown" \
   -DLLVM_TOOL_LLVM_LTO2_BUILD=OFF \
   -DLLVM_TOOL_LLVM_LTO_BUILD=OFF \
   -DLLVM_TOOL_LTO_BUILD=OFF \
@@ -141,8 +139,8 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DCLANG_TOOL_ARCMT_TEST_BUILD=OFF \
   -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
   -DCLANG_TOOL_LIBCLANG_BUILD=OFF \
-  -DLLVM_TABLEGEN="/usr/bin/llvm-tblgen-18" \
-  -DCLANG_TABLEGEN="/usr/bin/clang-tblgen-18"
+  -DLLVM_TABLEGEN="/usr/lib/llvm-18/bin/llvm-tblgen" \
+  -DCLANG_TABLEGEN="/usr/lib/llvm-18/bin/clang-tblgen"
 
 # RPATH change breaks install becuase we have static executables
 find . -type f -name "*_install.cmake" -exec sed -i '/file(RPATH_CHANGE/,+3d' {} \;
@@ -164,12 +162,11 @@ cmake "$ROOTDIR/SPIRV-Tools" -G Ninja \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/bin/llvm-rc-18" \
-  -DCMAKE_AR="/usr/bin/llvm-ar-18" \
-  -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
+  -DCMAKE_RC_COMPILER="/usr/lib/llvm-18/bin/llvm-rc" \
+  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
+  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DSPIRV_SKIP_TESTS=ON \
   -DSPIRV_HEADERS_INCLUDE_DIR="$ROOTDIR/out/$TARGET-$MCPU"
-  #-DSPIRV-Headers_SOURCE_DIR="$ROOTDIR/SPIRV-Headers"
 ninja install
 
 
@@ -184,9 +181,8 @@ cmake "$ROOTDIR/SPIRV-LLVM-Translator" -G Ninja \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/bin/llvm-rc-18" \
-  -DCMAKE_AR="/usr/bin/llvm-ar-18" \
-  -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
+  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
+  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DLLVM_DIR="$ROOTDIR/out/$TARGET-$MCPU/lib/cmake/llvm" \
   -DLLVM_SPIRV_BUILD_EXTERNAL=YES \
   -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/out/$TARGET-$MCPU" \
@@ -195,19 +191,3 @@ cmake "$ROOTDIR/SPIRV-LLVM-Translator" -G Ninja \
   -Dzstd_ROOT="$ROOTDIR/out/$TARGET-$MCPU/lib" \
   -Dzstd_INCLUDE_DIR="$ROOTDIR/out/$TARGET-$MCPU/include"
 cmake --build . --target install --parallel $(nproc)
-
-mkdir -p "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
-cd "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
-cmake "$ROOTDIR/openclc" -G Ninja \
-  -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
-  -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CROSSCOMPILING=True \
-  -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
-  -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/bin/llvm-rc-18" \
-  -DCMAKE_AR="/usr/bin/llvm-ar-18" \
-  -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18"
-cp "$ROOTDIR/out/build-openclc-$TARGET-$MCPU/compile_commands.json" "$ROOTDIR/compile_commands.json"

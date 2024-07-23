@@ -6,12 +6,7 @@ endif()
 include(${LLVM_COMMON_CMAKE_UTILS}/Modules/CMakePolicy.cmake
   NO_POLICY_SCOPE)
 
-# If we are not building as a part of LLVM, build Clang as an
-# standalone project, using LLVM as an external library:
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  project(Clang)
-  set(CLANG_BUILT_STANDALONE TRUE)
-endif()
+set(CLANG_BUILT_STANDALONE FALSE)
 
 # Must go below project(..)
 include(GNUInstallDirs)
@@ -534,12 +529,6 @@ if( CLANG_INCLUDE_TESTS )
     umbrella_lit_testsuite_end(check-all)
   endif()
   add_subdirectory(utils/perf-training)
-endif()
-
-option(CLANG_INCLUDE_DOCS "Generate build targets for the Clang docs."
-  ${LLVM_INCLUDE_DOCS})
-if( CLANG_INCLUDE_DOCS )
-  add_subdirectory(docs)
 endif()
 
 # Custom target to install all clang libraries.

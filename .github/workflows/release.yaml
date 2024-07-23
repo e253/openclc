@@ -13,11 +13,7 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: |
-            /usr/bin/llvm-rc-18
-            /usr/bin/llvm-ar-18
-            /usr/bin/llvm-ranlib-18
-            /usr/bin/llvm-tblgen-18
-            /usr/bin/clang-tblgen-18
+            /usr/lib/llvm-18
             /usr/bin/ninja
           key: clang-llvm-ninja-apt-install
 
@@ -30,15 +26,11 @@ jobs:
           sudo apt install ninja-build
       
       - name: Store APT Dependencies to Cache
-        if: '!steps.clang-llvm-apt-cache.output.cache-hit'
+        if: '!steps.apt-cache.output.cache-hit'
         uses: actions/cache/save@v3
         with:
           path: |
-            /usr/bin/llvm-rc-18
-            /usr/bin/llvm-ar-18
-            /usr/bin/llvm-ranlib-18
-            /usr/bin/llvm-tblgen-18
-            /usr/bin/clang-tblgen-18
+            /usr/lib/llvm-18
             /usr/bin/ninja
           key: clang-llvm-ninja-apt-install
       
@@ -46,7 +38,7 @@ jobs:
         id: zvm-zig-cache
         uses: actions/cache/restore@v3
         with: 
-          path: $HOME/.zvm
+          path: '$HOME/.zvm/'
           key: zvm-zig-13
 
       # TODO: Add caching to be nice to ziglang.org and to save time
@@ -63,7 +55,7 @@ jobs:
         if: '!steps.zvm-zig-cache.outputs.cache-hit'
         uses: actions/cache/save@v3
         with:
-          path: $HOME/.zvm
+          path: '$HOME/.zvm/'
           key: zvm-zig-13
 
       # Flow from https://github.com/marketplace/actions/tool-cache
@@ -86,4 +78,3 @@ jobs:
         with: 
           path: $GITHUB_WORKSPACE/out/build-llvm-x86_64-linux-musl-x86_64
           key: build-llvm-x86_64-linux-musl-x86_64
-

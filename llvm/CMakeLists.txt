@@ -1189,25 +1189,6 @@ add_subdirectory(include)
 
 add_subdirectory(lib)
 
-if( LLVM_INCLUDE_UTILS )
-  add_subdirectory(utils/FileCheck)
-  add_subdirectory(utils/PerfectShuffle)
-  add_subdirectory(utils/count)
-  add_subdirectory(utils/not)
-  add_subdirectory(utils/UnicodeData)
-  add_subdirectory(utils/yaml-bench)
-  add_subdirectory(utils/split-file)
-  add_subdirectory(utils/mlgo-utils)
-  if( LLVM_INCLUDE_TESTS )
-    add_subdirectory(${LLVM_THIRD_PARTY_DIR}/unittest ${CMAKE_CURRENT_BINARY_DIR}/third-party/unittest)
-  endif()
-else()
-  if ( LLVM_INCLUDE_TESTS )
-    message(FATAL_ERROR "Including tests when not building utils will not work.
-    Either set LLVM_INCLUDE_UTILS to On, or set LLVM_INCLUDE_TESTS to Off.")
-  endif()
-endif()
-
 # Use LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION instead of LLVM_INCLUDE_UTILS because it is not really a util
 if (LLVM_ADD_NATIVE_VISUALIZERS_TO_SOLUTION)
   add_subdirectory(utils/LLVMVisualizers)
@@ -1227,10 +1208,6 @@ endif()
 
 if( LLVM_INCLUDE_RUNTIMES )
   add_subdirectory(runtimes)
-endif()
-
-if( LLVM_INCLUDE_EXAMPLES )
-  add_subdirectory(examples)
 endif()
 
 if( LLVM_INCLUDE_TESTS )
@@ -1265,16 +1242,7 @@ if( LLVM_INCLUDE_TESTS )
   add_dependencies(check-all test-depends)
 endif()
 
-if (LLVM_INCLUDE_DOCS)
-  add_subdirectory(docs)
-endif()
-
 add_subdirectory(cmake/modules)
-
-# Do this last so that all lit targets have already been created.
-if (LLVM_INCLUDE_UTILS)
-  add_subdirectory(utils/llvm-lit)
-endif()
 
 if (NOT LLVM_INSTALL_TOOLCHAIN_ONLY)
   install(DIRECTORY include/llvm include/llvm-c
@@ -1377,6 +1345,6 @@ if (LLVM_INCLUDE_BENCHMARKS)
   add_subdirectory(benchmarks)
 endif()
 
-if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
-  add_subdirectory(utils/llvm-locstats)
-endif()
+# if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
+#   add_subdirectory(utils/llvm-locstats)
+# endif()
