@@ -31,8 +31,6 @@ cmake "$ROOTDIR/openclc" -G Ninja \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/bin/llvm-rc-18" \
   -DCMAKE_AR="/usr/bin/llvm-ar-18" \
   -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
   -DCMAKE_CXX_FLAGS="-std=c++20"

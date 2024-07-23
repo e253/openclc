@@ -25,70 +25,6 @@ esac
 # Now we have Zig as a cross compiler.
 ZIG="$HOME/.zvm/bin/zig"
 
-# First cross compile zlib for the target, as we need the LLVM linked into
-# the final zig binary to have zlib support enabled.
-mkdir -p "$ROOTDIR/out/build-zlib-$TARGET-$MCPU"
-cd "$ROOTDIR/out/build-zlib-$TARGET-$MCPU"
-cmake "$ROOTDIR/zlib" -G Ninja \
-  -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
-  -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CROSSCOMPILING=True \
-  -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
-  -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/bin/llvm-rc-18" \
-  -DCMAKE_AR="/usr/bin/llvm-ar-18" \
-  -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18"
-cmake --build . --target install --parallel $(nproc)
-
-# Same deal for zstd.
-# The build system for zstd is whack so I just put all the files here.
-mkdir -p "$ROOTDIR/out/$TARGET-$MCPU/lib"
-cp "$ROOTDIR/zstd/lib/zstd.h" "$ROOTDIR/out/$TARGET-$MCPU/include/zstd.h"
-cd "$ROOTDIR/out/$TARGET-$MCPU/lib"
-$ZIG build-lib \
-  --name zstd \
-  -target $TARGET \
-  -mcpu=$MCPU \
-  -fstrip -OReleaseFast \
-  -lc \
-  "$ROOTDIR/zstd/lib/decompress/zstd_ddict.c" \
-  "$ROOTDIR/zstd/lib/decompress/zstd_decompress.c" \
-  "$ROOTDIR/zstd/lib/decompress/huf_decompress.c" \
-  "$ROOTDIR/zstd/lib/decompress/huf_decompress_amd64.S" \
-  "$ROOTDIR/zstd/lib/decompress/zstd_decompress_block.c" \
-  "$ROOTDIR/zstd/lib/compress/zstdmt_compress.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_opt.c" \
-  "$ROOTDIR/zstd/lib/compress/hist.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_ldm.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_fast.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_compress_literals.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_double_fast.c" \
-  "$ROOTDIR/zstd/lib/compress/huf_compress.c" \
-  "$ROOTDIR/zstd/lib/compress/fse_compress.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_lazy.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_compress.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_compress_sequences.c" \
-  "$ROOTDIR/zstd/lib/compress/zstd_compress_superblock.c" \
-  "$ROOTDIR/zstd/lib/deprecated/zbuff_compress.c" \
-  "$ROOTDIR/zstd/lib/deprecated/zbuff_decompress.c" \
-  "$ROOTDIR/zstd/lib/deprecated/zbuff_common.c" \
-  "$ROOTDIR/zstd/lib/common/entropy_common.c" \
-  "$ROOTDIR/zstd/lib/common/pool.c" \
-  "$ROOTDIR/zstd/lib/common/threading.c" \
-  "$ROOTDIR/zstd/lib/common/zstd_common.c" \
-  "$ROOTDIR/zstd/lib/common/xxhash.c" \
-  "$ROOTDIR/zstd/lib/common/debug.c" \
-  "$ROOTDIR/zstd/lib/common/fse_decompress.c" \
-  "$ROOTDIR/zstd/lib/common/error_private.c" \
-  "$ROOTDIR/zstd/lib/dictBuilder/zdict.c" \
-  "$ROOTDIR/zstd/lib/dictBuilder/divsufsort.c" \
-  "$ROOTDIR/zstd/lib/dictBuilder/fastcover.c" \
-  "$ROOTDIR/zstd/lib/dictBuilder/cover.c"
-
-# Rebuild LLVM with Zig.
 mkdir -p "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cmake "$ROOTDIR/llvm" -G Ninja \
@@ -115,9 +51,9 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_RUNTIMES="" \
   -DLLVM_TARGETS_TO_BUILD="" \
-  -DLLVM_ENABLE_ZLIB=FORCE_ON \
-  -DLLVM_ENABLE_ZSTD=FORCE_ON \
-  -DLLVM_USE_STATIC_ZSTD=ON \
+  -DLLVM_ENABLE_ZLIB=OFF \
+  -DLLVM_ENABLE_ZSTD=OFF \
+  -DLLVM_USE_STATIC_ZSTD=OFF \
   -DLLVM_INCLUDE_UTILS=OFF \
   -DLLVM_INCLUDE_TESTS=OFF \
   -DLLVM_INCLUDE_EXAMPLES=OFF \
@@ -128,7 +64,6 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DLLVM_TOOL_LTO_BUILD=OFF \
   -DLLVM_TOOL_REMARKS_SHLIB_BUILD=OFF \
   -DLLVM_BUILD_STATIC=ON \
-  -DCLANG_INCLUDE_DOCS=OFF \
   -DCLANG_INCLUDE_TESTS=OFF \
   -DCLANG_ENABLE_ARCMT=OFF \
   -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
@@ -141,32 +76,25 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DCLANG_TOOL_LIBCLANG_BUILD=OFF \
   -DLLVM_TABLEGEN="/usr/lib/llvm-18/bin/llvm-tblgen" \
   -DCLANG_TABLEGEN="/usr/lib/llvm-18/bin/clang-tblgen"
-
 # RPATH change breaks install becuase we have static executables
 find . -type f -name "*_install.cmake" -exec sed -i '/file(RPATH_CHANGE/,+3d' {} \;
-
 ninja install
 
-mkdir -p "$ROOTDIR/out/build-spv-headers"
-cd "$ROOTDIR/out/build-spv-headers"
-cmake "$ROOTDIR/SPIRV-Headers" \
-  -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU"
-make install
 
-mkdir -p "$ROOTDIR/out/build-spv-tools-headers"
-cd "$ROOTDIR/out/build-spv-tools-headers"
+mkdir -p "$ROOTDIR/out/build-spv-tools-$TARGET-$MCPU"
+cd "$ROOTDIR/out/build-spv-tools-$TARGET-$MCPU"
 cmake "$ROOTDIR/SPIRV-Tools" -G Ninja \
   -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CROSSCOMPILING=True \
+  -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_RC_COMPILER="/usr/lib/llvm-18/bin/llvm-rc" \
   -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
   -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DSPIRV_SKIP_TESTS=ON \
-  -DSPIRV_HEADERS_INCLUDE_DIR="$ROOTDIR/out/$TARGET-$MCPU"
+  -DSPIRV-Headers_SOURCE_DIR="$ROOTDIR/SPIRV-Headers"
 ninja install
 
 
@@ -180,14 +108,9 @@ cmake "$ROOTDIR/SPIRV-LLVM-Translator" -G Ninja \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
   -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DLLVM_DIR="$ROOTDIR/out/$TARGET-$MCPU/lib/cmake/llvm" \
-  -DLLVM_SPIRV_BUILD_EXTERNAL=YES \
-  -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/out/$TARGET-$MCPU" \
-  -DZLIB_USE_STATIC_LIBS=ON \
-  -DZLIB_ROOT="$ROOTDIR/out/$TARGET-$MCPU/lib" \
-  -Dzstd_ROOT="$ROOTDIR/out/$TARGET-$MCPU/lib" \
-  -Dzstd_INCLUDE_DIR="$ROOTDIR/out/$TARGET-$MCPU/include"
-cmake --build . --target install --parallel $(nproc)
+  -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
+  -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/SPIRV-Headers"
+ninja install
