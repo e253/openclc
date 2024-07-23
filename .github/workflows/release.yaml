@@ -8,17 +8,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Load APT Dependencies from Cache
+        id: apt-cache
+        uses: actions/cache/restore@v3
+        with:
+          path: |
+            /usr/bin/llvm-rc-18
+            /usr/bin/llvm-ar-18
+            /usr/bin/llvm-ranlib-18
+            /usr/bin/llvm-tblgen-18
+            /usr/bin/clang-tblgen-18
+            /usr/bin/ninja
+          key: clang-llvm-ninja-apt-install
+
       # TODO: Add caching to be nice to apt.llvm.org and to save time
-      - name: Install Clang/LLVM 18 
+      - name: Install APT Dependencies
+        if: '!steps.apt-cache.output.cache-hit'
         run: |
           chmod +x ./llvm.sh
           sudo ./llvm.sh 18 all
+          sudo apt install ninja-build
       
-      - name: Install Ninja
-        run: sudo apt install ninja
+      - name: Store APT Dependencies to Cache
+        if: '!steps.clang-llvm-apt-cache.output.cache-hit'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            /usr/bin/llvm-rc-18
+            /usr/bin/llvm-ar-18
+            /usr/bin/llvm-ranlib-18
+            /usr/bin/llvm-tblgen-18
+            /usr/bin/clang-tblgen-18
+            /usr/bin/ninja
+          key: clang-llvm-ninja-apt-install
+      
+      - name: Load Zig from Cache
+        id: zvm-zig-cache
+        uses: actions/cache/restore@v3
+        with: 
+          path: $HOME/.zvm
+          key: zvm-zig-13
 
       # TODO: Add caching to be nice to ziglang.org and to save time
       - name: Install ZVM and Zig
+        if: '!steps.zvm-zig-cache.outputs.cache-hit'
         run: |
           wget https://github.com/tristanisham/zvm/releases/download/v0.7.3/zvm-linux-amd64.tar -O zvm.tar
           mkdir -p $HOME/.zvm/self
@@ -26,22 +59,29 @@ jobs:
           rm zvm.tar
           $HOME/.zvm/self/zvm i 0.13.0
 
+      - name: Save ZVM and Zig to Cache
+        if: '!steps.zvm-zig-cache.outputs.cache-hit'
+        uses: actions/cache/save@v3
+        with:
+          path: $HOME/.zvm
+          key: zvm-zig-13
+
       # Flow from https://github.com/marketplace/actions/tool-cache
-      - name: Read cache for Clang/LLVM build
-        id: llvm-cache
+      - name: Load Clang/LLVM Build from Cache
+        id: llvm-build-cache
         uses: actions/cache/restore@v3
         with:
           path: $GITHUB_WORKSPACE/out/build-llvm-x86_64-linux-musl-x86_64
           key: build-llvm-x86_64-linux-musl-x86_64
         
       - name: Build Clang/LLVM
-        if: '!steps.llvm-cache.outputs.cache-hit'
+        if: '!steps.llvm-build-cache.outputs.cache-hit'
         run: |
           chmod +x $GITHUB_WORKSPACE/build-deps.sh
           $GITHUB_WORKSPACE/build-deps.sh x86_64-linux-musl x86_64
         
-      - name: Save Clang/LLVM to cache
-        if: '!steps.llvm-cache.outputs.cache-hit'
+      - name: Save Clang/LLVM to Cache
+        if: '!steps.llvm-build-cache.outputs.cache-hit'
         uses: actions/cache/save@v3
         with: 
           path: $GITHUB_WORKSPACE/out/build-llvm-x86_64-linux-musl-x86_64

@@ -129,10 +129,7 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DLLVM_TOOL_LLVM_LTO_BUILD=OFF \
   -DLLVM_TOOL_LTO_BUILD=OFF \
   -DLLVM_TOOL_REMARKS_SHLIB_BUILD=OFF \
-  -DLLVM_BUILD_UTILS=ON \
-  -DLLVM_BUILD_TOOLS=ON \
   -DLLVM_BUILD_STATIC=ON \
-  -DCLANG_BUILD_TOOLS=ON \
   -DCLANG_INCLUDE_DOCS=OFF \
   -DCLANG_INCLUDE_TESTS=OFF \
   -DCLANG_ENABLE_ARCMT=OFF \
@@ -147,7 +144,7 @@ cmake "$ROOTDIR/llvm" -G Ninja \
   -DLLVM_TABLEGEN="/usr/bin/llvm-tblgen-18" \
   -DCLANG_TABLEGEN="/usr/bin/clang-tblgen-18"
 
-# RPATH install breaks install becuase we have static executables
+# RPATH change breaks install becuase we have static executables
 find . -type f -name "*_install.cmake" -exec sed -i '/file(RPATH_CHANGE/,+3d' {} \;
 
 ninja install
