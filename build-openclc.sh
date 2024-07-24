@@ -30,10 +30,13 @@ cmake "$ROOTDIR/openclc" \
   -DCMAKE_CROSSCOMPILING=True \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
+  -DOPENCLC_ZIG_BUILD_LIB="$ZIG;build-lib;-target;$TARGET;-mcpu=$MCPU" \
   -DCMAKE_AR="/usr/bin/llvm-ar-18" \
   -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
   -DCMAKE_CXX_FLAGS="-std=c++20"
 
-cp "$ROOTDIR/out/build-openclc-$TARGET-$MCPU/compile_commands.json" "$ROOTDIR/compile_commands.json"
+if [ $TARGET_OS_CMAKE = "Windows"]; then
+  cp "$ROOTDIR/out/build-openclc-$TARGET-$MCPU/compile_commands.json" "$ROOTDIR/compile_commands.json"
+fi
 
 make install

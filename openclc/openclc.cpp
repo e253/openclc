@@ -20,14 +20,22 @@
 #include <clang/Frontend/CompilerInvocation.h>
 #include <cstdint>
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <memory>
 #include <spirv-tools/libspirv.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOGDI
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 
 #define OPENCLC_VERSION "0.0.1"
 
@@ -100,26 +108,32 @@ int main(int argc, const char** argv)
 
     if (Verbose) {
         char exe_path[200];
-        int err_code = readlink("/proc/self/exe", exe_path, 200);
-        if (err_code < 0)
+        int err_code;
+#ifdef _WIN32
+        err_code = GetModuleFileName(nullptr, exe_path, 200);
+#else
+        err_code = readlink("/proc/self/exe", exe_path, 200);
+#endif
+        if (err_code < 0) {
+#ifdef _WIN32
+            fmt::print(err, "Recieved err code '{}' calling `GetModuleFileName`", err_code);
+#else
             fmt::print(err, "Recieved err code '{}' reading `/proc/self/exe`", err_code);
-        else
+#endif
+        } else {
             fmt::println("Debug: {}", exe_path);
+        }
     }
 
     llvm::LLVMContext ctx;
 
     vector<unique_ptr<llvm::Module>> mods;
     for (string fileName : InputFilenames) {
-        string filePath = filesystem::absolute(fileName);
-
         if (Verbose)
-            fmt::println("Debug: Compilation of {}", filePath);
-
-        mods.push_back(SourceToModule(ctx, filePath));
-
+            fmt::print("Debug: Compiling {}", fileName);
+        mods.push_back(SourceToModule(ctx, fileName));
         if (Verbose)
-            fmt::print(fg(fmt::color::green), "Debug: Success\n", filePath);
+            fmt::print(fg(fmt::color::green), "Debug: Success\n");
     }
 
     unique_ptr<llvm::Module> mod(mods.back().release());
@@ -271,7 +285,7 @@ unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName
     clang::LangOptions::setLangDefaults(
         clangInstance.getLangOpts(),
         lang,
-        llvm::Triple { "spir64-unknown-unknown" },
+        llvm::Triple { "spirv64-unknown-unknown" },
         includes,
         langStd);
 
@@ -337,7 +351,7 @@ void optimizerMessageConsumer(spv_message_level_t level, const char* source, con
 /// Appends the contents of the |file| to |data|, assuming each element in the
 /// file is of type |T|.
 template <typename T>
-void ReadFile(FILE* file, std::vector<T>* data)
+void ReadFile(FILE* file, vector<T>* data)
 {
     if (file == nullptr)
         return;
@@ -383,7 +397,7 @@ bool WasFileCorrectlyRead(FILE* file, const char* filename)
 /// reopened as a binary file. If any error occurs, writes error messages to
 /// standard error and returns false.
 template <typename T>
-bool ReadBinaryFile(const char* filename, std::vector<T>* data)
+bool ReadBinaryFile(const char* filename, vector<T>* data)
 {
     FILE* fp = fopen(filename, "rb");
 
@@ -398,7 +412,7 @@ bool ReadBinaryFile(const char* filename, std::vector<T>* data)
 /// an error message if the file io goes wrong. On a successful write, the
 /// routine will return `true`.
 template <typename T>
-bool WriteBinaryFile(const char* filename, std::vector<T>* data)
+bool WriteBinaryFile(const char* filename, vector<T>* data)
 {
     FILE* fp = fopen(filename, "wb");
 

@@ -18,15 +18,20 @@ target_include_directories(fmt
     ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/include
 )
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  set(OPENCL_H_LIB opencl_headers.lib)
+else()
+  set(OPENCL_H_LIB libopencl_headers.a)
+endif()
 add_custom_command(
-  OUTPUT libopencl_headers.a
-  COMMAND zig build-lib ${CMAKE_CURRENT_SOURCE_DIR}/opencl_headers.zig
+  OUTPUT ${OPENCL_H_LIB}
+  COMMAND ${OPENCLC_ZIG_BUILD_LIB} ${CMAKE_CURRENT_SOURCE_DIR}/opencl_headers.zig
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/opencl_headers.zig ${CMAKE_CURRENT_SOURCE_DIR}/opencl-c.h
 )
-add_custom_target(buildOpenCLHeaderBin DEPENDS libopencl_headers.a)
+add_custom_target(buildOpenCLHeaderBin DEPENDS ${OPENCL_H_LIB})
 add_library(opencl_headers STATIC IMPORTED GLOBAL)
 add_dependencies(opencl_headers buildOpenCLHeaderBin)
-set_target_properties(opencl_headers PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/libopencl_headers.a)
+set_target_properties(opencl_headers PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/${OPENCL_H_LIB})
 
 add_executable(openclc openclc.cpp)
 
@@ -38,7 +43,17 @@ target_include_directories(openclc
 
 target_link_directories(openclc PUBLIC ${CMAKE_INSTALL_PREFIX}/lib)
 
-add_definitions("-fno-rtti")
+target_compile_options(openclc PRIVATE
+  # Don't touch, important for windows-gnu
+  -fno-exceptions
+  -funwind-tables
+  -fno-rtti
+  -std=c++20
+  -D_FILE_OFFSET_BITS=64 
+  -D__STDC_CONSTANT_MACROS 
+  -D__STDC_FORMAT_MACROS 
+  -D__STDC_LIMIT_MACROS
+  )
 
 target_link_libraries(openclc
   PRIVATE

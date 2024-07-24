@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
+// clang-format off
 
 #include "MSVC.h"
 #include "CommonArgs.h"
@@ -591,37 +592,39 @@ bool MSVCToolChain::getUniversalCRTLibraryPath(const ArgList &Args,
 
 static VersionTuple getMSVCVersionFromExe(const std::string &BinDir) {
   VersionTuple Version;
-#ifdef _WIN32
-  SmallString<128> ClExe(BinDir);
-  llvm::sys::path::append(ClExe, "cl.exe");
-
-  std::wstring ClExeWide;
-  if (!llvm::ConvertUTF8toWide(ClExe.c_str(), ClExeWide))
-    return Version;
-
-  const DWORD VersionSize = ::GetFileVersionInfoSizeW(ClExeWide.c_str(),
-                                                      nullptr);
-  if (VersionSize == 0)
-    return Version;
-
-  SmallVector<uint8_t, 4 * 1024> VersionBlock(VersionSize);
-  if (!::GetFileVersionInfoW(ClExeWide.c_str(), 0, VersionSize,
-                             VersionBlock.data()))
-    return Version;
-
-  VS_FIXEDFILEINFO *FileInfo = nullptr;
-  UINT FileInfoSize = 0;
-  if (!::VerQueryValueW(VersionBlock.data(), L"\\",
-                        reinterpret_cast<LPVOID *>(&FileInfo), &FileInfoSize) ||
-      FileInfoSize < sizeof(*FileInfo))
-    return Version;
-
-  const unsigned Major = (FileInfo->dwFileVersionMS >> 16) & 0xFFFF;
-  const unsigned Minor = (FileInfo->dwFileVersionMS      ) & 0xFFFF;
-  const unsigned Micro = (FileInfo->dwFileVersionLS >> 16) & 0xFFFF;
-
-  Version = VersionTuple(Major, Minor, Micro);
-#endif
+// Unnecessary function that breaks build
+// KEEP THIS PATCH for now
+// #ifdef _WIN32
+//   SmallString<128> ClExe(BinDir);
+//   llvm::sys::path::append(ClExe, "cl.exe");
+// 
+//   std::wstring ClExeWide;
+//   if (!llvm::ConvertUTF8toWide(ClExe.c_str(), ClExeWide))
+//     return Version;
+// 
+//   const DWORD VersionSize = ::GetFileVersionInfoSizeW(ClExeWide.c_str(),
+//                                                       nullptr);
+//   if (VersionSize == 0)
+//     return Version;
+// 
+//   SmallVector<uint8_t, 4 * 1024> VersionBlock(VersionSize);
+//   if (!::GetFileVersionInfoW(ClExeWide.c_str(), 0, VersionSize,
+//                              VersionBlock.data()))
+//     return Version;
+// 
+//   VS_FIXEDFILEINFO *FileInfo = nullptr;
+//   UINT FileInfoSize = 0;
+//   if (!::VerQueryValueW(VersionBlock.data(), L"\\",
+//                         reinterpret_cast<LPVOID *>(&FileInfo), &FileInfoSize) ||
+//       FileInfoSize < sizeof(*FileInfo))
+//     return Version;
+// 
+//   const unsigned Major = (FileInfo->dwFileVersionMS >> 16) & 0xFFFF;
+//   const unsigned Minor = (FileInfo->dwFileVersionMS      ) & 0xFFFF;
+//   const unsigned Micro = (FileInfo->dwFileVersionLS >> 16) & 0xFFFF;
+// 
+//   Version = VersionTuple(Major, Minor, Micro);
+// #endif
   return Version;
 }
 
