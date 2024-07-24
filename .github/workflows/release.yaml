@@ -41,7 +41,7 @@ jobs:
         id: llvm-build-cache
         uses: actions/cache/restore@v3
         with:
-          path: $GITHUB_WORKSPACE/out/${{ matrix.target }}-${{ matrix.mcpu }}
+          path: ${{ github.workspace }}/out/${{ matrix.target }}-${{ matrix.mcpu }}
           key: build-deps-${{ matrix.target }}-${{ matrix.mcpu }}
       
       # no caching for apt, but these tools are only needed for openclc dependencies
@@ -56,12 +56,12 @@ jobs:
       - name: Build LLVM and Dependencies
         if: '!steps.llvm-build-cache.outputs.cache-hit'
         run: |
-          chmod +x $GITHUB_WORKSPACE/build-deps.sh
-          $GITHUB_WORKSPACE/build-deps.sh ${{ matrix.target }} ${{ matrix.mcpu }}
+          chmod +x ${{ github.workspace }}/build-deps.sh
+          ${{ github.workspace }}/build-deps.sh ${{ matrix.target }} ${{ matrix.mcpu }}
         
       - name: Save to Cache
         if: '!steps.llvm-build-cache.outputs.cache-hit'
         uses: actions/cache/save@v3
         with: 
-          path: $GITHUB_WORKSPACE/out/${{ matrix.target }}-${{ matrix.mcpu }}
+          path: ${{ github.workspace }}/out/${{ matrix.target }}-${{ matrix.mcpu }}
           key: build-deps-${{ matrix.target }}-${{ matrix.mcpu }}
