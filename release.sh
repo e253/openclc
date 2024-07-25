@@ -8,7 +8,7 @@ MCPU="$2"
 OS_AND_ABI=${TARGET#*-}
 OS=${OS_AND_ABI%-*}
 
-OPENCLC_VERSION=$($ROOTDIR/out/x86_64-linux-musl-x86_64/bin/openclc --version)
+OPENCLC_VERSION="0.0.1"
 RELEASE_NAME="openclc-$OPENCLC_VERSION-$TARGET"
 mkdir -p "$ROOTDIR/release/$RELEASE_NAME"
 
