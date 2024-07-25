@@ -76,7 +76,11 @@ jobs:
       - name: Build OpenCLC
         run: |
           chmod +x build-openclc.sh
-          ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
+          if [ ${{ matrix.target }} = "windows" ]; then
+            ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
+          else
+            echo "OpenCLC doesn't build for windows yet" > openclc
+          fi
           ./release.sh ${{ matrix.target }} ${{ matrix.mcpu }}
       
       - name: Release
