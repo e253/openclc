@@ -54,7 +54,7 @@ jobs:
       # no caching for apt, but these tools are only needed for openclc dependencies
       # only install if the build-deps cache misses
       - name: Install APT Dependencies
-        if: '!steps.llvm-build-cache.output.cache-hit'
+        if: '!steps.llvm-build-cache.outputs.cache-hit'
         run: |
           chmod +x ./llvm.sh
           sudo ./llvm.sh 18 all
@@ -76,7 +76,7 @@ jobs:
       - name: Build OpenCLC
         run: |
           chmod +x build-openclc.sh
-          ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }}
+          ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
           ./release.sh ${{ matrix.target }} ${{ matrix.mcpu }}
       
       - name: Release
