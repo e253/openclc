@@ -1,5 +1,6 @@
 .cache
 out
+release
 compile_commands.json
 experiments
 a.out

@@ -91,9 +91,10 @@ if (APPLE)
     set(TARGET_NAME clang)
   endif()
 
-  target_link_libraries(${TARGET_NAME}
-    PRIVATE
-    "-Wl,-sectcreate,__TEXT,__info_plist,\"${TOOL_INFO_PLIST_OUT}\"")
+  # TODO: undo, this is probably important
+  # target_link_libraries(${TARGET_NAME}
+  #   PRIVATE
+  #   "-Wl,-sectcreate,__TEXT,__info_plist,\"${TOOL_INFO_PLIST_OUT}\"")
   configure_file("${TOOL_INFO_PLIST}.in" "${TOOL_INFO_PLIST_OUT}" @ONLY)
 
   set(TOOL_INFO_UTI)

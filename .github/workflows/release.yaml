@@ -1,5 +1,6 @@
 name: Release OpenCLC Binary
-on: workflow_dispatch
+on: push
+
     
 
 jobs:
@@ -9,6 +10,12 @@ jobs:
       matrix:
         include:
           - target: x86_64-linux-musl
+            mcpu: x86_64
+          - target: x86_64-windows-gnu
+            mcpu: x86_64
+          - target: aarch64-macos
+            mcpu: generic
+          - target: x86_64-macos
             mcpu: x86_64
 
     steps:
@@ -65,3 +72,15 @@ jobs:
         with: 
           path: ${{ github.workspace }}/out/${{ matrix.target }}-${{ matrix.mcpu }}
           key: build-deps-${{ matrix.target }}-${{ matrix.mcpu }}
+        
+      - name: Build OpenCLC
+        run: |
+          chmod +x build-openclc.sh
+          ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }}
+          ./release.sh ${{ matrix.target }} ${{ matrix.mcpu }}
+      
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "release/*"
