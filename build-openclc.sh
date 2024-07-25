@@ -19,7 +19,7 @@ case $TARGET_OS_CMAKE in
 esac
 
 # Now we have Zig as a cross compiler.
-ZIG="/home/esteere/.zvm/bin/zig"
+ZIG="$HOME/.zvm/bin/zig"
 
 mkdir -p "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
