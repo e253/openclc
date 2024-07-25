@@ -28,6 +28,14 @@ LLVM_RANLIB="${LLVM_RANLIB:-/usr/lib/llvm-18/bin/llvm-ranlib}"
 LLVM_TBLGEN="${LLVM_TBLGEN:-/usr/lib/llvm-18/bin/llvm-tblgen}"
 CLANG_TBLGEN="${CLANG_TBLGEN:-/usr/lib/llvm-18/bin/clang-tblgen}"
 
+if [ $TARGET_OS_CMAKE = "windows" ]; then
+  LLVM_CC="$ZIG;cc;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
+  LLVM_CXX="$ZIG;c++;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
+else
+  LLVM_CC="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
+  LLVM_CXX="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
+fi
+
 mkdir -p "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
 cmake "$ROOTDIR/third_party/llvm" -G Ninja \
@@ -36,9 +44,9 @@ cmake "$ROOTDIR/third_party/llvm" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CROSSCOMPILING=True \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
-  -DCMAKE_C_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_ASM_COMPILER="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
+  -DCMAKE_C_COMPILER=$LLVM_CC \
+  -DCMAKE_CXX_COMPILER=$LLVM_CXX \
+  -DCMAKE_ASM_COMPILER=$LLVM_CC \
   -DCMAKE_AR="$LLVM_AR" \
   -DCMAKE_RANLIB="$LLVM_RANLIB" \
   -DLLVM_ENABLE_PROJECTS="clang" \
