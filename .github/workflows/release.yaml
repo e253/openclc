@@ -1,6 +1,8 @@
 name: Release OpenCLC Binary
 on: push
 
+permissions: 
+  contents: write
     
 
 jobs:
