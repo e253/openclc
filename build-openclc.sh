@@ -35,7 +35,7 @@ cmake "$ROOTDIR/openclc" \
   -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
   -DCMAKE_CXX_FLAGS="-std=c++20"
 
-if [ $TARGET_OS_CMAKE = "Windows"]; then
+if [ $TARGET_OS_CMAKE = "linux" ]; then
   cp "$ROOTDIR/out/build-openclc-$TARGET-$MCPU/compile_commands.json" "$ROOTDIR/compile_commands.json"
 fi
 

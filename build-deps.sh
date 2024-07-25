@@ -118,3 +118,16 @@ cmake "$ROOTDIR/third_party/SPIRV-LLVM-Translator" -G Ninja \
   -DLLVM_EXTERNAL_LIT="/usr/lib/llvm-18/build/utils/lit/lit.py" \
   -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$ROOTDIR/third_party/SPIRV-Headers"
 ninja install
+
+mkdir -p "$ROOTDIR/out/build-fmt-$TARGET-$MCPU"
+cd "$ROOTDIR/out/build-fmt-$TARGET-$MCPU"
+cmake "$ROOTDIR/third_party/fmt" -G Ninja \
+  -DCMAKE_INSTALL_PREFIX="$ROOTDIR/out/$TARGET-$MCPU" \
+  -DCMAKE_PREFIX_PATH="$ROOTDIR/out/$TARGET-$MCPU" \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_CROSSCOMPILING=True \
+  -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
+  -DCMAKE_CXX_COMPILER="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU" \
+  -DCMAKE_AR="$LLVM_AR" \
+  -DCMAKE_RANLIB="$LLVM_RANLIB"
+ninja install

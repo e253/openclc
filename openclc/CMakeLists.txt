@@ -7,17 +7,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(LLVM ${CLANG_LLVM_VERSION} REQUIRED)
 
-set(FMT_SOURCES 
-  ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/fmt.cc 
-  ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/format.cc 
-  ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/os.cc
-)
-add_library(fmt STATIC ${FMT_SOURCES})
-target_include_directories(fmt
-  PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/../third_party/fmt/include
-)
-
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
   set(OPENCL_H_LIB opencl_headers.lib)
 else()
@@ -38,9 +27,7 @@ add_executable(openclc openclc.cpp)
 target_include_directories(openclc
   PRIVATE
     ${CMAKE_INSTALL_PREFIX}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/fmt/include
 )
-
 target_link_directories(openclc PUBLIC ${CMAKE_INSTALL_PREFIX}/lib)
 
 target_compile_options(openclc PRIVATE
