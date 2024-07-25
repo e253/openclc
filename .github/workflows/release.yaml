@@ -76,7 +76,11 @@ jobs:
       - name: Build OpenCLC
         run: |
           chmod +x build-openclc.sh
-          ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
+          if [ ${{ matrix.target }} = "x86_64-windows-gnu" ]; then
+            echo "OpenCLC doesn't build for windows, use llvm-spirv.exe" > ${{ github.workspace }}/out/${{ matrix.target }}-${{ matrix.mcpu }}/bin/openclc.exe
+          else
+            ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
+          fi
           ./release.sh ${{ matrix.target }} ${{ matrix.mcpu }}
       
       - name: Release

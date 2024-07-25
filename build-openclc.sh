@@ -20,12 +20,7 @@ esac
 
 # Now we have Zig as a cross compiler.
 ZIG="$HOME/.zvm/bin/zig"
-
-if [ $TARGET_OS_CMAKE = "windows" ]; then
-  CXX="$ZIG;c++;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
-else
-  CXX="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
-fi
+CXX="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
 
 mkdir -p "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
 cd "$ROOTDIR/out/build-openclc-$TARGET-$MCPU"
