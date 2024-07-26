@@ -5,11 +5,9 @@ ROOTDIR=$(pwd)
 TARGET="$1"
 MCPU="$2"
 
-OS_AND_ABI=${TARGET#*-}
-OS=${OS_AND_ABI%-*}
+ARCH_AND_OS=${TARGET%-*}
 
-OPENCLC_VERSION="0.0.1"
-RELEASE_NAME="openclc-$OPENCLC_VERSION-$TARGET"
+RELEASE_NAME="openclc-$ARCH_AND_OS"
 mkdir -p "$ROOTDIR/release/$RELEASE_NAME"
 
 if [ $OS = "windows" ]; then
