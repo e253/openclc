@@ -10,7 +10,7 @@ ARCH_AND_OS=${TARGET%-*}
 RELEASE_NAME="openclc-$ARCH_AND_OS"
 mkdir -p "$ROOTDIR/release/$RELEASE_NAME"
 
-if [ $OS = "windows" ]; then
+if [ $ARCH_AND_OS = "x86_64-windows" ]; then
     EXE=".exe"
 else
     EXE=""
