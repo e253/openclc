@@ -6,6 +6,9 @@ TARGET="$1"
 MCPU="$2"
 
 ARCH_AND_OS=${TARGET%-*}
+if [[ $TARGET == *"macos"* ]]; then
+    ARCH_AND_OS=$TARGET
+fi
 
 RELEASE_NAME="openclc-$ARCH_AND_OS"
 mkdir -p "$ROOTDIR/release/$RELEASE_NAME"
