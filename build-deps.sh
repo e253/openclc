@@ -27,13 +27,14 @@ LLVM_AR="${LLVM_AR:-/usr/lib/llvm-18/bin/llvm-ar}"
 LLVM_RANLIB="${LLVM_RANLIB:-/usr/lib/llvm-18/bin/llvm-ranlib}"
 LLVM_TBLGEN="${LLVM_TBLGEN:-/usr/lib/llvm-18/bin/llvm-tblgen}"
 CLANG_TBLGEN="${CLANG_TBLGEN:-/usr/lib/llvm-18/bin/clang-tblgen}"
+LLVM_TOOL_DIR="/usr/lib/llvm-18/bin"
 
 if [ $TARGET_OS_CMAKE = "windows" ]; then
-  LLVM_CC="$ZIG;cc;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
-  LLVM_CXX="$ZIG;c++;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
+  CC="$ZIG;cc;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
+  CXX="$ZIG;c++;-fno-sanitize=all;-fno-lto;-s;-target;$TARGET;-mcpu=$MCPU"
 else
-  LLVM_CC="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
-  LLVM_CXX="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
+  CC="$ZIG;cc;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
+  CXX="$ZIG;c++;-fno-sanitize=all;-s;-target;$TARGET;-mcpu=$MCPU"
 fi
 
 mkdir -p "$ROOTDIR/out/build-llvm-$TARGET-$MCPU"
@@ -44,9 +45,9 @@ cmake "$ROOTDIR/third_party/llvm" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CROSSCOMPILING=True \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
-  -DCMAKE_C_COMPILER=$LLVM_CC \
-  -DCMAKE_CXX_COMPILER=$LLVM_CXX \
-  -DCMAKE_ASM_COMPILER=$LLVM_CC \
+  -DCMAKE_C_COMPILER="$CC" \
+  -DCMAKE_CXX_COMPILER="$CXX" \
+  -DCMAKE_ASM_COMPILER="$CC" \
   -DCMAKE_AR="$LLVM_AR" \
   -DCMAKE_RANLIB="$LLVM_RANLIB" \
   -DLLVM_ENABLE_PROJECTS="clang" \
@@ -86,7 +87,8 @@ cmake "$ROOTDIR/third_party/llvm" -G Ninja \
   -DCLANG_TOOL_C_ARCMT_TEST_BUILD=OFF \
   -DCLANG_TOOL_LIBCLANG_BUILD=OFF \
   -DLLVM_TABLEGEN="$LLVM_TBLGEN" \
-  -DCLANG_TABLEGEN="$CLANG_TBLGEN"
+  -DCLANG_TABLEGEN="$CLANG_TBLGEN" \
+  -DLLVM_NATIVE_TOOL_DIR="$LLVM_TOOL_DIR"
 # RPATH change breaks install becuase we have static executables
 find . -type f -name "*_install.cmake" -exec sed -i '/file(RPATH_CHANGE/,+3d' {} \;
 ninja install

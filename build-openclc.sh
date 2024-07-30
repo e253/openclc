@@ -32,8 +32,8 @@ cmake "$ROOTDIR/openclc" \
   -DCMAKE_SYSTEM_NAME="$TARGET_OS_CMAKE" \
   -DCMAKE_CXX_COMPILER="$CXX" \
   -DOPENCLC_ZIG_BUILD_LIB="$ZIG;build-lib;-target;$TARGET;-mcpu=$MCPU" \
-  -DCMAKE_AR="/usr/bin/llvm-ar-18" \
-  -DCMAKE_RANLIB="/usr/bin/llvm-ranlib-18" \
+  -DCMAKE_AR="/usr/lib/llvm-18/bin/llvm-ar" \
+  -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DCMAKE_CXX_FLAGS="-std=c++20"
 
 if [ $TARGET_OS_CMAKE = "linux" ]; then
