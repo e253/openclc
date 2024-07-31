@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.28.3)
 project(openclc VERSION 0.0.1 LANGUAGES CXX)
 
 set(CLANG_LLVM_VERSION 18.1.7)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(LLVM ${CLANG_LLVM_VERSION} REQUIRED)
 

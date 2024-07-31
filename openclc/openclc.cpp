@@ -1,4 +1,3 @@
-#include "openclc.hpp"
 #include "LLVMSPIRVLib/LLVMSPIRVLib.h"
 #include "fmt/color.h"
 #include "fmt/core.h"
@@ -39,8 +38,10 @@
 
 #define OPENCLC_VERSION "0.0.1"
 
-using namespace std;
 namespace cli = llvm::cl;
+
+extern const char* opencl_c_h_data;
+extern size_t opencl_c_h_size;
 
 static fmt::text_style err = fg(fmt::color::crimson) | fmt::emphasis::bold;
 static fmt::text_style good = fg(fmt::color::green);
@@ -49,12 +50,12 @@ static llvm::ExitOnError LLVMExitOnErr;
 /* Command Line Options */
 // https://llvm.org/docs/CommandLine.html
 static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
-static cli::list<string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
-static cli::opt<string> OutputFileName("o", cli::desc("Output Filename"), cli::init("a.out"), cli::cat(OpenCLCOptions));
+static cli::list<std::string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
+static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("a.out"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
-static cli::list<string> Warnings(cli::Prefix, "W", cli::desc("Enable or disable a warning in Clang"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
+static cli::list<std::string> Warnings(cli::Prefix, "W", cli::desc("Enable or disable a warning in Clang"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::list<std::string> Includes(cli::Prefix, "I", cli::desc("Add a directory to be searched for header files"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::list<std::string> Defines(cli::Prefix, "D", cli::desc("Define a #define directive"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::opt<bool> Debug("g", cli::desc("Skip optimization passes and leave debug information"), cli::cat(OpenCLCOptions));
@@ -93,85 +94,51 @@ static cli::opt<SPIRV::VersionNumber> SpvVersion(
     cli::init(SPIRV::VersionNumber::SPIRV_1_0),
     cli::cat(OpenCLCOptions));
 
-int main(int argc, const char** argv)
+/// https://stackoverflow.com/questions/786555/c-stream-to-memory
+///
+/// https://gist.github.com/stephanlachnit/4a06f8475afd144e73235e2a2584b000
+///
+/// Stream Buffer backed by a std::vector<char>
+///
+/// For interfaces heavily bound to std::ostream << patterns
+struct membuf : std::streambuf {
+public:
+    membuf() { }
+    std::streamsize xsputn(const char* s, std::streamsize count) override
+    {
+        for (int i = 0; i < count; i++)
+            vec.push_back(s[i]);
+
+        pbump(count);
+
+        return count;
+    }
+    std::vector<char> vec;
+};
+
+/// function that acts as a stdout logger for the spvtools::Optimizer
+void optimizerMessageConsumer(spv_message_level_t level, const char* source, const spv_position_t& position, const char* message)
 {
-    if (argc == 2) {
-        // llvm::cl --version returns llvm version
-        if (string(argv[1]) == string("--version")) {
-            fmt::println("{}", OPENCLC_VERSION);
-            return 0;
-        }
+    std::string strLevel;
+    switch (level) {
+    case SPV_MSG_FATAL:
+        strLevel = "SPV_MSG_FATAL";
+    case SPV_MSG_ERROR:
+        strLevel = "SPV_MSG_ERROR";
+    case SPV_MSG_INTERNAL_ERROR:
+        strLevel = "SPV_MSG_INTERL_ERROR";
+    case SPV_MSG_WARNING:
+        strLevel = "SPV_MSG_WARNING";
+    case SPV_MSG_DEBUG:
+        strLevel = "SPV_MSG_DEBUG";
+    case SPV_MSG_INFO:
+        strLevel = "SPV_MSG_INFO";
     }
 
-    cli::HideUnrelatedOptions(OpenCLCOptions);
-    cli::ParseCommandLineOptions(argc, argv, "OpenCL Compiler");
-
-    if (Verbose) {
-        char exe_path[200];
-        int err_code;
-#ifdef _WIN32
-        err_code = GetModuleFileName(nullptr, exe_path, 200);
-#else
-        err_code = readlink("/proc/self/exe", exe_path, 200);
-#endif
-        if (err_code < 0) {
-#ifdef _WIN32
-            fmt::print(err, "Recieved err code '{}' calling `GetModuleFileName`", err_code);
-#else
-            fmt::print(err, "Recieved err code '{}' reading `/proc/self/exe`", err_code);
-#endif
-        } else {
-            fmt::println("Debug: {}", exe_path);
-        }
-    }
-
-    llvm::LLVMContext ctx;
-
-    vector<unique_ptr<llvm::Module>> mods;
-    for (string fileName : InputFilenames) {
-        if (Verbose)
-            fmt::print("Debug: Compiling {}", fileName);
-        mods.push_back(SourceToModule(ctx, fileName));
-        if (Verbose)
-            fmt::print(fg(fmt::color::green), "Debug: Success\n");
-    }
-
-    unique_ptr<llvm::Module> mod(mods.back().release());
-    mods.pop_back();
-    llvm::Linker L(*mod);
-    for (unique_ptr<llvm::Module>& mod : mods) {
-        bool error = L.linkInModule(std::move(mod), 0);
-        if (error) {
-            fmt::print(err, "Link Step Failed\n");
-            return 1;
-        }
-    }
-
-    if (Verbose)
-        fmt::println("Debug: Successfully linked {} modules", mods.size() + 1);
-
-    SPIRV::TranslatorOpts translatorOptions(SpvVersion);
-
-    ofstream outFile(OutputFileName);
-    string llvmSpirvCompilationErrors;
-    bool success = llvm::writeSpirv(&*mod, translatorOptions, outFile, llvmSpirvCompilationErrors);
-    if (!success) {
-        fmt::print(err, "{}\n", llvmSpirvCompilationErrors);
-    } else if (Verbose) {
-        fmt::println("Debug: Emitted `{}` Debug", OutputFileName);
-    }
-    outFile.close();
-
-    if (!Debug) {
-        success = Optimize(OutputFileName);
-        if (!success) {
-            fmt::print(err, "Optimization Passes for {} failed\n", OutputFileName);
-        } else if (Verbose) {
-            fmt::println("Debug: Optimized `{}` Successfully", OutputFileName);
-        }
-    }
+    fmt::print(err, "OPTIMIZER_{}: `{}`\n", strLevel, message);
 }
 
+/// utility needed in SourceToModule, to set contents of `opencl-c.h`
 struct OpenCLBuiltinMemoryBuffer final : public llvm::MemoryBuffer {
     OpenCLBuiltinMemoryBuffer(const void* data, uint64_t data_length)
     {
@@ -187,7 +154,12 @@ struct OpenCLBuiltinMemoryBuffer final : public llvm::MemoryBuffer {
     virtual ~OpenCLBuiltinMemoryBuffer() override { }
 };
 
-unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName)
+/// library based equivalent to `clang -c -emit-llvm`.
+///
+/// Kills process with helpful messages if there are compilation errors.
+///
+/// Credit: https://github.com/google/clspv/blob/2776a72da17dfffdd1680eeaff26a8bebdaa60f7/lib/Compiler.cpp#L1079
+std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string& fileName)
 {
     clang::CompilerInstance clangInstance;
     clang::FrontendInputFile clSrcFile(fileName, clang::InputKind(clang::Language::OpenCL)); // TODO: decide language based on `.cl` or `.clpp` exentsion
@@ -198,13 +170,13 @@ unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName
         clangInstance.getDiagnosticOpts().Warnings.push_back("no-c++98-compat");
         clangInstance.getDiagnosticOpts().Warnings.push_back("no-missing-prototypes");
     }
-    for (string warning : Warnings) {
+    for (std::string warning : Warnings) {
         clangInstance.getDiagnosticOpts().Warnings.push_back(warning);
     }
 
     // clang compiler instance options
     // diagnostics
-    string log;
+    std::string log;
     llvm::raw_string_ostream diagnosticsStream(log);
     clangInstance.createDiagnostics(
         new clang::TextDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
@@ -217,7 +189,7 @@ unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName
 
     // target
     clangInstance.getTargetOpts().Triple = "spirv64-unknown-unknown";
-    clangInstance.setTarget(clang::TargetInfo::CreateTargetInfo(clangInstance.getDiagnostics(), make_shared<clang::TargetOptions>(clangInstance.getTargetOpts())));
+    clangInstance.setTarget(clang::TargetInfo::CreateTargetInfo(clangInstance.getDiagnostics(), std::make_shared<clang::TargetOptions>(clangInstance.getTargetOpts())));
 
     // instance options
     clangInstance.createFileManager();
@@ -281,7 +253,7 @@ unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName
         fmt::print(err, "Invalid file extension supplied. Use `.cl` for OpenCL C and `.clpp` or `.clcpp` for OpenCL C++ source\n");
     }
 
-    vector<string> includes;
+    std::vector<std::string> includes;
     clang::LangOptions::setLangDefaults(
         clangInstance.getLangOpts(),
         lang,
@@ -290,7 +262,7 @@ unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName
         langStd);
 
     clangInstance.getPreprocessorOpts().addMacroDef("__SPIRV__");
-    unique_ptr<llvm::MemoryBuffer> opencl_c_h_buffer(new OpenCLBuiltinMemoryBuffer(opencl_c_h_data, opencl_c_h_size));
+    std::unique_ptr<llvm::MemoryBuffer> opencl_c_h_buffer(new OpenCLBuiltinMemoryBuffer(opencl_c_h_data, opencl_c_h_size));
     clangInstance.getPreprocessorOpts().Includes.push_back("opencl-c.h");
     clang::FileEntryRef opencl_c_h_ref = clangInstance.getFileManager().getVirtualFileRef("include/opencl-c.h", opencl_c_h_buffer->getBufferSize(), 0);
     clangInstance.getSourceManager().overrideFileContents(opencl_c_h_ref, std::move(opencl_c_h_buffer));
@@ -326,117 +298,60 @@ unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, string& fileName
     return action.takeModule();
 }
 
-/// function that acts as a stdout logger for the spvtools::Optimizer instance
-void optimizerMessageConsumer(spv_message_level_t level, const char* source, const spv_position_t& position, const char* message)
+int main(int argc, const char** argv)
 {
-    string strLevel;
-    switch (level) {
-    case SPV_MSG_FATAL:
-        strLevel = "SPV_MSG_FATAL";
-    case SPV_MSG_ERROR:
-        strLevel = "SPV_MSG_ERROR";
-    case SPV_MSG_INTERNAL_ERROR:
-        strLevel = "SPV_MSG_INTERL_ERROR";
-    case SPV_MSG_WARNING:
-        strLevel = "SPV_MSG_WARNING";
-    case SPV_MSG_DEBUG:
-        strLevel = "SPV_MSG_DEBUG";
-    case SPV_MSG_INFO:
-        strLevel = "SPV_MSG_INFO";
-    }
-
-    fmt::print(err, "OPTIMIZER_{}: `{}`\n", strLevel, message);
-}
-
-/// Appends the contents of the |file| to |data|, assuming each element in the
-/// file is of type |T|.
-template <typename T>
-void ReadFile(FILE* file, vector<T>* data)
-{
-    if (file == nullptr)
-        return;
-
-    const int buf_size = 1024;
-    T buf[buf_size];
-    while (size_t len = fread(buf, sizeof(T), buf_size, file)) {
-        data->insert(data->end(), buf, buf + len);
-    }
-}
-
-/// Returns true if |file| has encountered an error opening the file or reading
-/// the file as a series of element of type |T|. If there was an error, writes an
-/// error message to standard error.
-template <class T>
-bool WasFileCorrectlyRead(FILE* file, const char* filename)
-{
-    if (file == nullptr) {
-        fmt::print(err, "OPTIMIZER_SPV_MSG_ERROR: file {} does not exist\n", filename);
-        return false;
-    }
-
-    if (ftell(file) == -1L) {
-        if (ferror(file)) {
-            fmt::print(err, "OPTIMIZER_SPV_MSG_ERROR: error occurred reading file {}\n", filename);
-            return false;
-        }
-    } else {
-        if (sizeof(T) != 1 && (ftell(file) % sizeof(T))) {
-            fmt::print(
-                err,
-                "OPTIMIZER_SPV_MSG_ERROR: file size should be a multiple of {}; file {} is corrupt\n",
-                sizeof(T), filename);
-            return false;
+    if (argc == 2) {
+        // llvm::cl --version returns llvm version
+        if (std::string(argv[1]) == std::string("--version")) {
+            fmt::println("{}", OPENCLC_VERSION);
+            return 0;
         }
     }
-    return true;
-}
 
-/// Appends the contents of the file named |filename| to |data|, assuming
-/// each element in the file is of type |T|. The file is opened as a binary file
-/// If |filename| is nullptr or "-", reads from the standard input, but
-/// reopened as a binary file. If any error occurs, writes error messages to
-/// standard error and returns false.
-template <typename T>
-bool ReadBinaryFile(const char* filename, vector<T>* data)
-{
-    FILE* fp = fopen(filename, "rb");
+    cli::HideUnrelatedOptions(OpenCLCOptions);
+    cli::ParseCommandLineOptions(argc, argv, "OpenCL Compiler");
 
-    ReadFile(fp, data);
-    bool succeeded = WasFileCorrectlyRead<T>(fp, filename);
-    fclose(fp);
-    return succeeded;
-}
+    llvm::LLVMContext ctx;
 
-/// Overwrites the contents of the file named |filename| to the contents
-/// of the std::vector |data|. The function will return `false` and emit
-/// an error message if the file io goes wrong. On a successful write, the
-/// routine will return `true`.
-template <typename T>
-bool WriteBinaryFile(const char* filename, vector<T>* data)
-{
-    FILE* fp = fopen(filename, "wb");
-
-    if (fp == nullptr) {
-        fmt::print(err, "OPTIMIZER_SPV_MSG_ERROR: File {} does not exist\n", OutputFileName);
-        fclose(fp);
-        return false;
+    std::vector<std::unique_ptr<llvm::Module>> mods;
+    for (std::string fileName : InputFilenames) {
+        if (Verbose)
+            fmt::print("Debug: Compiling {}\n", fileName);
+        mods.push_back(SourceToModule(ctx, fileName));
+        if (Verbose)
+            fmt::print(fg(fmt::color::green), "Debug: Success\n");
     }
 
-    int nItemsWritten = fwrite(data->data(), sizeof(T), data->size(), fp);
-    if (nItemsWritten != data->size()) {
-        fmt::print(err, "OPTIMIZER_SPV_MSG_ERROR: Failed to write to {}\n", OutputFileName);
-        fclose(fp);
-        return false;
+    std::unique_ptr<llvm::Module> mod(mods.back().release());
+    mods.pop_back();
+    llvm::Linker L(*mod);
+    for (std::unique_ptr<llvm::Module>& mod : mods) {
+        bool error = L.linkInModule(std::move(mod), 0);
+        if (error) {
+            fmt::print(err, "Link Step Failed\n");
+            return 1;
+        }
     }
 
-    fclose(fp);
-    return true;
-}
+    if (Verbose)
+        fmt::println("Debug: Successfully linked {} modules", mods.size() + 1);
 
-bool Optimize(string& fileName)
-{
-    vector<uint32_t> binary;
-    ReadBinaryFile(fileName.c_str(), &binary);
+    SPIRV::TranslatorOpts translatorOptions(SpvVersion);
+
+    // ofstream outFile(OutputFileName);
+    membuf mbuf;
+    std::ostream os(&mbuf);
+
+    std::string llvmSpirvCompilationErrors;
+    bool success = llvm::writeSpirv(&*mod, translatorOptions, os, llvmSpirvCompilationErrors);
+    if (!success) {
+        fmt::print(err, "{}\n", llvmSpirvCompilationErrors);
+    } else if (Verbose) {
+        fmt::println("Debug: Emitted `{}` Debug", OutputFileName);
+    }
+
+    assert(mbuf.vec.size() % 4 == 0 && "Generated SPIR-V is corrupt, exiting.");
+    std::vector<uint32_t> optSPV;
 
     spv_target_env env;
     switch (SpvVersion) {
@@ -455,15 +370,18 @@ bool Optimize(string& fileName)
     }
 
     spvtools::Optimizer opt(env);
-    opt.RegisterPerformancePasses(true);
+    opt.RegisterPerformancePasses(!Debug);
     opt.SetMessageConsumer(optimizerMessageConsumer);
-    bool success = opt.Run(binary.data(), binary.size(), &binary);
-
+    opt.SetValidateAfterAll(true);
+    success = opt.Run(reinterpret_cast<const uint32_t*>(mbuf.vec.data()), mbuf.vec.size() / 4, &optSPV);
     if (!success) {
-        return false;
+        fmt::print(err, "Optimization Passes for {} failed\n", OutputFileName);
+        return 1;
+    } else if (Verbose) {
+        fmt::println("Debug: Optimized `{}` Successfully", OutputFileName);
     }
 
-    WriteBinaryFile(fileName.c_str(), &binary);
-
-    return true;
+    std::ofstream outFile(OutputFileName);
+    outFile.write(reinterpret_cast<const char*>(optSPV.data()), optSPV.size() * 4);
+    outFile.close();
 }
