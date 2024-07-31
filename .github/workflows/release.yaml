@@ -1,5 +1,9 @@
 name: Release OpenCLC Binary
-on: push
+on: 
+  push:
+    tags: 
+      - "*"
+  workflow_dispatch:
 
 permissions: 
   contents: write
