@@ -17,8 +17,6 @@ jobs:
         include:
           - target: x86_64-linux-musl
             mcpu: x86_64
-          - target: x86_64-windows-gnu
-            mcpu: x86_64
           - target: aarch64-macos
             mcpu: generic
           - target: x86_64-macos
@@ -82,11 +80,7 @@ jobs:
       - name: Build OpenCLC
         run: |
           chmod +x build-openclc.sh
-          if [ ${{ matrix.target }} = "x86_64-windows-gnu" ]; then
-            echo "OpenCLC doesn't build for windows, use llvm-spirv.exe" > ${{ github.workspace }}/out/${{ matrix.target }}-${{ matrix.mcpu }}/bin/openclc.exe
-          else
-            ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
-          fi
+          ./build-openclc.sh ${{ matrix.target }} ${{ matrix.mcpu }} Release
           ./release.sh ${{ matrix.target }} ${{ matrix.mcpu }}
       
       - name: Release
