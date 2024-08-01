@@ -25,18 +25,8 @@
 #include <llvm/Support/MemoryBuffer.h>
 #include <memory>
 #include <spirv-tools/libspirv.h>
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
 
-#define OPENCLC_VERSION "0.0.1"
+#define OPENCLC_VERSION "0.0.2"
 
 namespace cli = llvm::cl;
 
