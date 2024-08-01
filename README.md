@@ -1,6 +1,17 @@
 # OpenCLC
 This repo holds an experimental compiler for compiling OpenCL-C code to SPIR-V for use in opencl `createProgamWithIL`. It packages multiple pre-existing project into a single binary without any system dependencies at runtime.
 
+# Installation
+
+`install.sh` will download the lastest release for your os/arch and extract the contents to `$HOME/.openclc`.
+```sh
+curl -fsSL https://raw.githubusercontent.com/e253/openclc/main/install.sh | bash
+```
+
+Alternatively, download the release archive and extract it anywhere you'd like.
+
+OpenCLC does not need to be installed in any specific location.
+
 # Credits
 1. Khronos Group, for the `SPIRV-Tools`, `SPIRV-LLVM-Translator` dependencies
 2. Google for the `CLSPV` project, that works very similarly to this project, but instead targets a vulkan runtime. I couldn't have figured out the clang frontend calls otherwise.
