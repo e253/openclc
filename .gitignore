@@ -4,4 +4,8 @@ release
 compile_commands.json
 experiments
 a.out
+*.out
 *.spv
+*.o
+*.a
+*.so
