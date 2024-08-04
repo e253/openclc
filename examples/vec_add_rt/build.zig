@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         @panic("**-linux-musl builds don't work for this example :(");
     }
 
-    // compileCL(b, &.{"vec_add.cl"});
+    compileCL(b, &.{"vec_add.cl"});
 
     // this is the opencl driver loader
     const opencl = b.dependency("opencl", .{

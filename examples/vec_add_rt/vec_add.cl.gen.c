@@ -23,18 +23,21 @@ static bool prog_built = false;
 
 static int build_spv()
 {
+    cl_context ctx = get_context();
+    cl_device_id dev = get_device();
+
     cl_int err;
-    prog = clCreateProgramWithIL(get_context(), __spv_src, sizeof(__spv_src), &err);
+    prog = clCreateProgramWithIL(ctx, __spv_src, sizeof(__spv_src), &err);
     CL_CHECK(err);
-    err = clBuildProgram(prog, 1, get_device(), NULL, NULL, NULL);
+    err = clBuildProgram(prog, 1, &dev, NULL, NULL, NULL);
 
     // since we use validated SPIR-V, this is unlikely to fail.
     if (err != CL_SUCCESS) {
         size_t log_size;
-        err = clGetProgramBuildInfo(prog, get_device(), CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        err = clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
         CL_CHECK(err)
         char* log = (char*)malloc(log_size + 1);
-        err = clGetProgramBuildInfo(prog, get_device(), CL_PROGRAM_BUILD_LOG, log_size + 1, log, NULL);
+        err = clGetProgramBuildInfo(prog, dev, CL_PROGRAM_BUILD_LOG, log_size + 1, log, NULL);
         CL_CHECK(err)
 
         fprintf(stderr, "OpenCL Build Failed:\n\n%s\n", log);
@@ -66,18 +69,16 @@ int add(dim3 gd, dim3 bd, oclc_mem A, oclc_mem B, oclc_mem C)
 
     cl_int err;
 
-    // Validate Args
-
     // Build Program
     cl_kernel kernel = clCreateKernel(prog, "add", &err);
     CL_CHECK(err)
 
     // Set Arguments
-    err = clSetKernelArg(kernel, 0, sizeof(cl_mem), A);
+    err = clSetKernelArg(kernel, 0, sizeof(cl_mem), (cl_mem*)&A);
     CL_CHECK(err)
-    err = clSetKernelArg(kernel, 1, sizeof(cl_mem), B);
+    err = clSetKernelArg(kernel, 1, sizeof(cl_mem), (cl_mem*)&B);
     CL_CHECK(err)
-    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), C);
+    err = clSetKernelArg(kernel, 2, sizeof(cl_mem), (cl_mem*)&C);
     CL_CHECK(err)
 
     cl_uint work_dim = 3;

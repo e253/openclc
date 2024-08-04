@@ -184,12 +184,13 @@ oclc_mem oclcMalloc(size_t sz)
     cl_mem mem = clCreateBuffer(ctx, CL_MEM_READ_WRITE, sz, NULL, &err);
 
     if (err != CL_SUCCESS) {
+        fprintf(stderr, "OpenCL Error Code %d: '%s' encountered at %s:%d\n", err, opencl_errstr(err), __FILE__, __LINE__);
         crash();
         // TODO: set some state for an error polling function.
         return MEM_FAILURE;
     }
 
-    return mem;
+    return (oclc_mem)mem;
 }
 
 int oclcFree(oclc_mem mem)
@@ -230,7 +231,7 @@ int oclcMemcpyDeviceToHost(void* dst, oclc_mem src, size_t sz)
         return 1;
     }
 
-    cl_int err = clEnqueueReadBuffer(queue, dst, CL_FALSE, 0, sz, src, 0, NULL, NULL);
+    cl_int err = clEnqueueReadBuffer(queue, src, CL_FALSE, 0, sz, dst, 0, NULL, NULL);
     CL_CHECK(err)
 
     return 0;
