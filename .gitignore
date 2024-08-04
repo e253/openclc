@@ -9,3 +9,6 @@ a.out
 *.o
 *.a
 *.so
+spvbin.c
+.zig-cache
+zig-out

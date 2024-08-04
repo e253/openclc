@@ -1,5 +1,5 @@
 #include "spvbin.c"
-#define CL_HPP_TARGET_OPENCL_VERSION 300
+#define CL_TARGET_OPENCL_VERSION 300
 #include <CL/opencl.h>
 #include <assert.h>
 #include <stdbool.h>

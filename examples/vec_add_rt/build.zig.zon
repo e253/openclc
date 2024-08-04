@@ -1,0 +1,16 @@
+.{
+    .name = "vec_add",
+    .version = "0.0.1",
+    .dependencies = .{
+        .opencl = .{
+            .url = "https://github.com/e253/zig-ocl/archive/refs/tags/v3.0.16.tar.gz",
+            .hash = "12208537a3f6223ed24bbc459f3e726f0b92616cc4e3d3facb0f9b090cf98a0953f9",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "vec_add.c",
+        "vec_add.cl",
+    },
+}

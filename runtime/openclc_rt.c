@@ -90,7 +90,7 @@ const char* opencl_errstr(cl_int err)
 }
 
 /// Process exits if OCLC_CRASH_ON_ERROR is defined
-inline void crash()
+static void crash()
 {
 #ifdef OCLC_CRASH_ON_ERROR
     exit(1);

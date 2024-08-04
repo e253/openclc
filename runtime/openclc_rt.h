@@ -42,3 +42,6 @@ cl_context get_context();
 
 /// Get Internal Queue Handle
 cl_command_queue get_queue();
+
+/// Convert OpenCL error code to descriptive string
+const char* opencl_errstr(cl_int err);
