@@ -41,8 +41,8 @@ int main()
     oclcMemcpy(dB, B, sz, oclcMemcpyHostToDevice);
     oclcMemcpy(dC, C, sz, oclcMemcpyHostToDevice);
 
-    dim3 gridDim = { n / 32, 0, 0 };
-    dim3 blockDim = { 32, 0, 0 };
+    dim3 gridDim = { n / 32 };
+    dim3 blockDim = { 32 };
 
     // Invoke the Kernel!
     add(gridDim, blockDim, dA, dB, dC);
