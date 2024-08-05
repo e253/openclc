@@ -56,7 +56,7 @@ typedef struct {
     int z;
 } dim3;
 
-int add(dim3 gd, dim3 bd, oclc_mem A, oclc_mem B, oclc_mem C)
+int add(dim3 gd, dim3 bd, float* A, float* B, float* C)
 {
     if (!prog_built) {
         int err = build_spv();
@@ -81,6 +81,7 @@ int add(dim3 gd, dim3 bd, oclc_mem A, oclc_mem B, oclc_mem C)
     err = clSetKernelArg(kernel, 2, sizeof(cl_mem), (cl_mem*)&C);
     CL_CHECK(err)
 
+    // Validate work dimensions
     cl_uint work_dim = 3;
     if (gd.z * bd.z == 0) {
         if (gd.z != 0 || bd.z != 0) {
@@ -113,6 +114,7 @@ int add(dim3 gd, dim3 bd, oclc_mem A, oclc_mem B, oclc_mem C)
     const size_t global_work_size[3] = { gd.x * bd.x, gd.y * bd.y, gd.z * bd.z };
     const size_t local_work_size[3] = { bd.x, bd.y, bd.z };
 
+    // Launch kernel
     err = clEnqueueNDRangeKernel(get_queue(), kernel, work_dim, &global_work_offset, global_work_size, local_work_size, 0, NULL, NULL);
     CL_CHECK(err)
 

@@ -10,7 +10,7 @@ typedef struct {
     int y;
     int z;
 } dim3;
-int add(dim3 gd, dim3 bd, oclc_mem A, oclc_mem B, oclc_mem C);
+int add(dim3 gd, dim3 bd, float* A, float* B, float* C);
 
 int main()
 {
@@ -19,31 +19,35 @@ int main()
     int n = 256;
     size_t sz = n * sizeof(float);
 
-    oclc_mem dA = oclcMalloc(sz);
-    oclc_mem dB = oclcMalloc(sz);
-    oclc_mem dC = oclcMalloc(sz);
-
+    // Allocate Host Memory
     float* A = (float*)malloc(sz);
     float* B = (float*)malloc(sz);
     float* C = (float*)malloc(sz);
 
+    // Initialize Host Memory
     for (int i = 0; i < n; i++) {
         A[i] = i;
         B[i] = i;
         C[i] = 0;
     }
 
-    oclcMemcpyHostToDevice(dA, A, sz);
-    oclcMemcpyHostToDevice(dB, B, sz);
-    oclcMemcpyHostToDevice(dC, C, sz);
+    // Allocate Device Memory
+    float* dA = (float*)oclcMalloc(sz);
+    float* dB = (float*)oclcMalloc(sz);
+    float* dC = (float*)oclcMalloc(sz);
+
+    // Copy Host Values to the Device Memory
+    oclcMemcpy(dA, A, sz, oclcMemcpyHostToDevice);
+    oclcMemcpy(dB, B, sz, oclcMemcpyHostToDevice);
+    oclcMemcpy(dC, C, sz, oclcMemcpyHostToDevice);
 
     dim3 gridDim = { n / 32, 0, 0 };
     dim3 blockDim = { 32, 0, 0 };
 
-    // kernel invocation
+    // Invoke the Kernel!
     add(gridDim, blockDim, dA, dB, dC);
 
-    oclcMemcpyDeviceToHost(C, dC, sz);
+    oclcMemcpy(C, dC, sz, oclcMemcpyDeviceToHost);
 
     oclcDeviceSynchronize();
 
@@ -52,8 +56,8 @@ int main()
     }
 
     puts("\n---------------------------\n");
-    puts("Passed\n");
-    puts("---------------------------\n");
+    puts("Passed");
+    puts("\n---------------------------\n");
 
     oclcFree(dA);
     oclcFree(dB);

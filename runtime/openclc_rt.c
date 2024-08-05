@@ -173,7 +173,7 @@ int oclcInit()
     return 0;
 }
 
-oclc_mem oclcMalloc(size_t sz)
+void* oclcMalloc(size_t sz)
 {
     if (sz == 0) {
         crash();
@@ -190,10 +190,10 @@ oclc_mem oclcMalloc(size_t sz)
         return MEM_FAILURE;
     }
 
-    return (oclc_mem)mem;
+    return (void*)mem;
 }
 
-int oclcFree(oclc_mem mem)
+int oclcFree(void* mem)
 {
     cl_int err = clReleaseMemObject((cl_mem)mem);
     if (err != CL_SUCCESS) {
@@ -205,7 +205,7 @@ int oclcFree(oclc_mem mem)
     }
 }
 
-int oclcMemcpyHostToDevice(oclc_mem dst, void* src, size_t sz)
+int oclcMemcpy(void* dst, void* src, size_t sz, OclcMemcpyDirection dir)
 {
     if (sz == 0)
         return 0;
@@ -215,24 +215,18 @@ int oclcMemcpyHostToDevice(oclc_mem dst, void* src, size_t sz)
         return 1;
     }
 
-    cl_int err = clEnqueueWriteBuffer(queue, dst, CL_FALSE, 0, sz, src, 0, NULL, NULL);
-    CL_CHECK(err)
-
-    return 0;
-}
-
-int oclcMemcpyDeviceToHost(void* dst, oclc_mem src, size_t sz)
-{
-    if (sz == 0)
-        return 0;
-    if (dst == NULL || src == NULL) {
-        fputs("null pointer supplied to copy", stderr);
-        crash();
-        return 1;
+    switch (dir) {
+    case oclcMemcpyHostToDevice: {
+        cl_int err = clEnqueueWriteBuffer(queue, dst, CL_FALSE, 0, sz, src, 0, NULL, NULL);
+        CL_CHECK(err)
+        break;
     }
-
-    cl_int err = clEnqueueReadBuffer(queue, src, CL_FALSE, 0, sz, dst, 0, NULL, NULL);
-    CL_CHECK(err)
+    case oclcMemcpyDeviceToHost: {
+        cl_int err = clEnqueueReadBuffer(queue, src, CL_FALSE, 0, sz, dst, 0, NULL, NULL);
+        CL_CHECK(err)
+        break;
+    }
+    }
 
     return 0;
 }
