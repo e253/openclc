@@ -208,7 +208,7 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     clang::Language lang;
     clang::LangStandard::Kind langStd;
 
-    if (fileName.ends_with(".cl")) {
+    if (fileName.ends_with(".cl") || fileName.ends_with(".ocl")) {
         lang = clang::Language::OpenCL;
         switch (CLStd) {
         case CL_STD_100:
@@ -227,10 +227,10 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
             langStd = clang::LangStandard::lang_opencl30;
             break;
         case CL_CPP_STD:
-            fmt::print(err, "Cannot specify CLC++ language standard with file extension `.cl`. Use `.clpp` or `.clcpp` instead\n");
+            fmt::print(err, "Cannot specify CLC++ language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
             exit(1);
         case CL_CPP_2021:
-            fmt::print(err, "Cannot specify CLC++2021 language standard with file extension `.cl`. Use `.clpp` or `.clcpp` instead\n");
+            fmt::print(err, "Cannot specify CLC++2021 language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
             exit(1);
         }
     } else if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
@@ -241,7 +241,7 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
             langStd = clang::LangStandard::lang_openclcpp10;
         }
     } else {
-        fmt::print(err, "Invalid file extension supplied. Use `.cl` for OpenCL C and `.clpp` or `.clcpp` for OpenCL C++ source\n");
+        fmt::print(err, "Invalid file extension supplied. Use `.cl` or `.ocl` for OpenCL C and `.clpp` or `.clcpp` for OpenCL C++ source\n");
     }
 
     std::vector<std::string> includes;
@@ -286,19 +286,20 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     if (consumer->getNumErrors() > 0)
         exit(1);
 
+    // TODO: Traverse AST Here to Grab Kernel Decls
+    // https://clang.llvm.org/docs/RAVFrontendAction.html
+
     return action.takeModule();
+}
+
+static void PrintVersion(llvm::raw_ostream& ros)
+{
+    ros << OPENCLC_VERSION << "\n";
 }
 
 int main(int argc, const char** argv)
 {
-    if (argc == 2) {
-        // llvm::cl --version returns llvm version
-        if (std::string(argv[1]) == std::string("--version")) {
-            fmt::println("{}", OPENCLC_VERSION);
-            return 0;
-        }
-    }
-
+    cli::SetVersionPrinter(PrintVersion);
     cli::HideUnrelatedOptions(OpenCLCOptions);
     cli::ParseCommandLineOptions(argc, argv, "OpenCL Compiler");
 
@@ -324,15 +325,45 @@ int main(int argc, const char** argv)
         }
     }
 
+    // This doesn't really work becuase the IR throws away pointer types :(
+    // We need to get it from the AST ... At I think so now.
+    // List all defined functions
+    // for (auto& F : *mod) {
+    //     llvm::outs() << "`" << F.getName() << "`: ";
+    //     llvm::CallingConv::ID cc = F.getCallingConv();
+    //     switch (cc) {
+    //     case llvm::CallingConv::SPIR_KERNEL: {
+    //         llvm::outs() << "callconv(SPIR_KERNEL)\n";
+    //         break;
+    //     };
+    //     case llvm::CallingConv::SPIR_FUNC: {
+    //         llvm::outs() << "callconv(SPIR_FUNC)\n";
+    //         break;
+    //     };
+    //     default: {
+    //         llvm::outs() << "callconv(" << cc << ")\n";
+    //         break;
+    //     }
+    //     }
+    //     F.getAttributes().print(llvm::outs());
+
+    //     if (cc == llvm::CallingConv::SPIR_KERNEL) {
+    //         for (auto& A : F.args()) {
+    //             llvm::outs() << (*A.getType()).getTypeID() << " ";
+    //             llvm::outs() << A.getName() << ", ";
+    //             llvm::outs() << "\n";
+    //         }
+    //     }
+
+    //     llvm::outs() << "\n";
+    // }
+
     if (Verbose)
         fmt::println("Debug: Successfully linked {} modules", mods.size() + 1);
 
-    SPIRV::TranslatorOpts translatorOptions(SpvVersion);
-
-    // ofstream outFile(OutputFileName);
     membuf mbuf;
     std::ostream os(&mbuf);
-
+    SPIRV::TranslatorOpts translatorOptions(SpvVersion);
     std::string llvmSpirvCompilationErrors;
     bool success = llvm::writeSpirv(&*mod, translatorOptions, os, llvmSpirvCompilationErrors);
     if (!success) {
