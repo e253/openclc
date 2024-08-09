@@ -2,6 +2,14 @@
 #include "fmt/color.h"
 #include "fmt/core.h"
 #include "spirv-tools/optimizer.hpp"
+
+#include "clang/AST/ASTConsumer.h"
+#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/FrontendAction.h"
+#include "clang/Frontend/FrontendActions.h"
+#include "clang/Tooling/Tooling.h"
+
 #include "clang/CodeGen/CodeGenAction.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
@@ -286,10 +294,166 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     if (consumer->getNumErrors() > 0)
         exit(1);
 
-    // TODO: Traverse AST Here to Grab Kernel Decls
-    // https://clang.llvm.org/docs/RAVFrontendAction.html
-
     return action.takeModule();
+}
+
+class FindNamedClassVisitor
+    : public clang::RecursiveASTVisitor<FindNamedClassVisitor> {
+public:
+    explicit FindNamedClassVisitor(clang::ASTContext* Context)
+        : Context(Context)
+    {
+    }
+
+    bool VisitCXXRecordDecl(clang::CXXRecordDecl* Declaration)
+    {
+        clang::FullSourceLoc FullLocation = Context->getFullLoc(Declaration->getBeginLoc());
+        if (FullLocation.isValid())
+            llvm::outs() << "Found declaration at "
+                         << FullLocation.getSpellingLineNumber() << ":"
+                         << FullLocation.getSpellingColumnNumber() << "\n";
+        return true;
+    }
+
+private:
+    clang::ASTContext* Context;
+};
+
+class FindNamedClassConsumer : public clang::ASTConsumer {
+public:
+    explicit FindNamedClassConsumer(clang::ASTContext* Context)
+        : Visitor(Context)
+    {
+    }
+
+    virtual void HandleTranslationUnit(clang::ASTContext& Context)
+    {
+        Visitor.TraverseDecl(Context.getTranslationUnitDecl());
+    }
+
+private:
+    FindNamedClassVisitor Visitor;
+};
+
+class FindNamedClassAction : public clang::ASTFrontendAction {
+public:
+    virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
+        clang::CompilerInstance& Compiler, llvm::StringRef InFile)
+    {
+        return std::make_unique<FindNamedClassConsumer>(&Compiler.getASTContext());
+    }
+};
+
+/// Eventually, this will extract Kernel Declarations so we can
+/// Create cpu functions based on ../examples/vec_add_rt/vec_add.cl.gen.c
+void SourceToKernelDecls(llvm::LLVMContext& ctx, std::string& fileName)
+{
+    clang::CompilerInstance clangInstance;
+    clang::FrontendInputFile clSrcFile(fileName, clang::InputKind(clang::Language::OpenCL)); // TODO: decide language based on `.cl` or `.clpp` exentsion
+
+    // warnings to disable
+    clangInstance.getDiagnosticOpts().Warnings.push_back("no-unsafe-buffer-usage");
+    if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
+        clangInstance.getDiagnosticOpts().Warnings.push_back("no-c++98-compat");
+        clangInstance.getDiagnosticOpts().Warnings.push_back("no-missing-prototypes");
+    }
+
+    // diagnostics
+    std::string log;
+    llvm::raw_string_ostream diagnosticsStream(log);
+    clangInstance.createDiagnostics(
+        new clang::TextDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
+        true);
+
+    // input
+    clangInstance.getFrontendOpts().Inputs.push_back(clSrcFile);
+
+    // target
+    clangInstance.getTargetOpts().Triple = "spirv64-unknown-unknown";
+    clangInstance.setTarget(clang::TargetInfo::CreateTargetInfo(clangInstance.getDiagnostics(), std::make_shared<clang::TargetOptions>(clangInstance.getTargetOpts())));
+
+    // instance options
+    clangInstance.createFileManager();
+    clangInstance.createSourceManager(clangInstance.getFileManager());
+
+    // language options, copied from CLSPV
+    clangInstance.getLangOpts().C99 = true;
+    clangInstance.getLangOpts().RTTI = false;
+    clangInstance.getLangOpts().RTTIData = false;
+    clangInstance.getLangOpts().MathErrno = false;
+    clangInstance.getLangOpts().Optimize = false;
+    clangInstance.getLangOpts().NoBuiltin = true;
+    clangInstance.getLangOpts().ModulesSearchAll = false;
+    clangInstance.getLangOpts().SinglePrecisionConstants = true;
+    clangInstance.getLangOpts().DeclareOpenCLBuiltins = true;
+    clangInstance.getLangOpts().NativeHalfType = true; // enabled by default
+    clangInstance.getLangOpts().NativeHalfArgsAndReturns = true; // enabled by default
+
+    clang::Language lang;
+    clang::LangStandard::Kind langStd;
+
+    if (fileName.ends_with(".cl") || fileName.ends_with(".ocl")) {
+        lang = clang::Language::OpenCL;
+        switch (CLStd) {
+        case CL_STD_100:
+            langStd = clang::LangStandard::lang_opencl10;
+            break;
+        case CL_STD_110:
+            langStd = clang::LangStandard::lang_opencl11;
+            break;
+        case CL_STD_120:
+            langStd = clang::LangStandard::lang_opencl12;
+            break;
+        case CL_STD_200:
+            langStd = clang::LangStandard::lang_opencl20;
+            break;
+        case CL_STD_300:
+            langStd = clang::LangStandard::lang_opencl30;
+            break;
+        case CL_CPP_STD:
+            fmt::print(err, "Cannot specify CLC++ language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
+            exit(1);
+        case CL_CPP_2021:
+            fmt::print(err, "Cannot specify CLC++2021 language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
+            exit(1);
+        }
+    } else if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
+        lang = clang::Language::OpenCLCXX;
+        if (CLStd == CL_CPP_2021) {
+            langStd = clang::LangStandard::lang_openclcpp2021;
+        } else {
+            langStd = clang::LangStandard::lang_openclcpp10;
+        }
+    } else {
+        fmt::print(err, "Invalid file extension supplied. Use `.cl` or `.ocl` for OpenCL C and `.clpp` or `.clcpp` for OpenCL C++ source\n");
+    }
+
+    std::vector<std::string> includes;
+    clang::LangOptions::setLangDefaults(
+        clangInstance.getLangOpts(),
+        lang,
+        llvm::Triple { "spirv64-unknown-unknown" },
+        includes,
+        langStd);
+
+    clangInstance.getPreprocessorOpts().addMacroDef("__SPIRV__");
+    std::unique_ptr<llvm::MemoryBuffer> opencl_c_h_buffer(new OpenCLBuiltinMemoryBuffer(opencl_c_h_data, opencl_c_h_size));
+    clangInstance.getPreprocessorOpts().Includes.push_back("opencl-c.h");
+    clang::FileEntryRef opencl_c_h_ref = clangInstance.getFileManager().getVirtualFileRef("include/opencl-c.h", opencl_c_h_buffer->getBufferSize(), 0);
+    clangInstance.getSourceManager().overrideFileContents(opencl_c_h_ref, std::move(opencl_c_h_buffer));
+
+    for (auto define : Defines) {
+        clangInstance.getPreprocessorOpts().addMacroDef(define);
+    }
+
+    for (auto include : Includes) {
+        clangInstance.getHeaderSearchOpts().AddPath(include, clang::frontend::After, false, false);
+    }
+
+    const bool success = clangInstance.ExecuteAction(*std::make_unique<FindNamedClassAction>());
+    if (!success) {
+        llvm::errs() << "FindNamedClassAction failed\n";
+    }
 }
 
 static void PrintVersion(llvm::raw_ostream& ros)
@@ -325,38 +489,11 @@ int main(int argc, const char** argv)
         }
     }
 
-    // This doesn't really work becuase the IR throws away pointer types :(
-    // We need to get it from the AST ... At I think so now.
-    // List all defined functions
-    // for (auto& F : *mod) {
-    //     llvm::outs() << "`" << F.getName() << "`: ";
-    //     llvm::CallingConv::ID cc = F.getCallingConv();
-    //     switch (cc) {
-    //     case llvm::CallingConv::SPIR_KERNEL: {
-    //         llvm::outs() << "callconv(SPIR_KERNEL)\n";
-    //         break;
-    //     };
-    //     case llvm::CallingConv::SPIR_FUNC: {
-    //         llvm::outs() << "callconv(SPIR_FUNC)\n";
-    //         break;
-    //     };
-    //     default: {
-    //         llvm::outs() << "callconv(" << cc << ")\n";
-    //         break;
-    //     }
-    //     }
-    //     F.getAttributes().print(llvm::outs());
-
-    //     if (cc == llvm::CallingConv::SPIR_KERNEL) {
-    //         for (auto& A : F.args()) {
-    //             llvm::outs() << (*A.getType()).getTypeID() << " ";
-    //             llvm::outs() << A.getName() << ", ";
-    //             llvm::outs() << "\n";
-    //         }
-    //     }
-
-    //     llvm::outs() << "\n";
-    // }
+    for (std::string fileName : InputFilenames) {
+        if (Verbose)
+            fmt::print("Debug: Examining {} for Kernel Declarations", fileName);
+        SourceToKernelDecls(ctx, fileName);
+    }
 
     if (Verbose)
         fmt::println("Debug: Successfully linked {} modules", mods.size() + 1);
