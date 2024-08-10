@@ -297,21 +297,37 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     return action.takeModule();
 }
 
-class FindNamedClassVisitor
-    : public clang::RecursiveASTVisitor<FindNamedClassVisitor> {
+class FindKernelDeclVisitor
+    : public clang::RecursiveASTVisitor<FindKernelDeclVisitor> {
 public:
-    explicit FindNamedClassVisitor(clang::ASTContext* Context)
+    explicit FindKernelDeclVisitor(clang::ASTContext* Context)
         : Context(Context)
     {
     }
 
-    bool VisitCXXRecordDecl(clang::CXXRecordDecl* Declaration)
+    bool VisitFunctionDecl(clang::FunctionDecl* Declaration)
     {
         clang::FullSourceLoc FullLocation = Context->getFullLoc(Declaration->getBeginLoc());
-        if (FullLocation.isValid())
-            llvm::outs() << "Found declaration at "
-                         << FullLocation.getSpellingLineNumber() << ":"
-                         << FullLocation.getSpellingColumnNumber() << "\n";
+        if (!FullLocation.isValid() || FullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
+            return true;
+
+        llvm::outs() << Declaration->getName() << "(";
+
+        for (int i = 0; i < Declaration->getNumParams(); i++) {
+            clang::ParmVarDecl* pvd = Declaration->getParamDecl(i);
+            std::string paramType = pvd->getOriginalType().getAsString();
+            llvm::outs() << paramType << pvd->getName();
+            if (i < Declaration->getNumParams() - 1)
+                llvm::outs() << ", ";
+        }
+
+        llvm::outs() << ");\n";
+
+        llvm::outs() << "Found declaration `"
+                     << Declaration->getName() << "` at "
+                     << FullLocation.getSpellingLineNumber() << ":"
+                     << FullLocation.getSpellingColumnNumber() << "\n\n";
+
         return true;
     }
 
@@ -319,9 +335,9 @@ private:
     clang::ASTContext* Context;
 };
 
-class FindNamedClassConsumer : public clang::ASTConsumer {
+class FindKernelDeclConsumer : public clang::ASTConsumer {
 public:
-    explicit FindNamedClassConsumer(clang::ASTContext* Context)
+    explicit FindKernelDeclConsumer(clang::ASTContext* Context)
         : Visitor(Context)
     {
     }
@@ -332,15 +348,15 @@ public:
     }
 
 private:
-    FindNamedClassVisitor Visitor;
+    FindKernelDeclVisitor Visitor;
 };
 
-class FindNamedClassAction : public clang::ASTFrontendAction {
+class FindKernelDeclAction : public clang::ASTFrontendAction {
 public:
     virtual std::unique_ptr<clang::ASTConsumer> CreateASTConsumer(
         clang::CompilerInstance& Compiler, llvm::StringRef InFile)
     {
-        return std::make_unique<FindNamedClassConsumer>(&Compiler.getASTContext());
+        return std::make_unique<FindKernelDeclConsumer>(&Compiler.getASTContext());
     }
 };
 
@@ -450,7 +466,7 @@ void SourceToKernelDecls(llvm::LLVMContext& ctx, std::string& fileName)
         clangInstance.getHeaderSearchOpts().AddPath(include, clang::frontend::After, false, false);
     }
 
-    const bool success = clangInstance.ExecuteAction(*std::make_unique<FindNamedClassAction>());
+    const bool success = clangInstance.ExecuteAction(*std::make_unique<FindKernelDeclAction>());
     if (!success) {
         llvm::errs() << "FindNamedClassAction failed\n";
     }
