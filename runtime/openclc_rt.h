@@ -1,6 +1,12 @@
 #include <CL/opencl.h>
 #include <stddef.h>
 
+typedef struct {
+    int x;
+    int y;
+    int z;
+} dim3;
+
 /// Initialize OpenCL State.
 ///
 /// Returns 0 on success.

@@ -50,12 +50,6 @@ static int build_spv()
     return 0;
 }
 
-typedef struct {
-    int x;
-    int y;
-    int z;
-} dim3;
-
 int add(dim3 gd, dim3 bd, float* A, float* B, float* C)
 {
     if (!prog_built) {

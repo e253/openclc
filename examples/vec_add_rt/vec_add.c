@@ -5,11 +5,6 @@
 #include <string.h>
 
 /// Decls to be in generated header
-typedef struct {
-    int x;
-    int y;
-    int z;
-} dim3;
 int add(dim3 gd, dim3 bd, float* A, float* B, float* C);
 
 int main()

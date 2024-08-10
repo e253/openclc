@@ -297,6 +297,20 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     return action.takeModule();
 }
 
+// Globals to add arguments
+// class KernelParam {
+//     KernelParam::KernelParam(std::string decl, std::string name);
+//     KernelParam::~KernelParam();
+//
+//     KernelParam::
+// };
+//
+// struct Kernel {
+//     std::vector<KernelParam> kParams;
+// };
+//
+// static std::vector<Kernel> KernelDecls;
+
 class FindKernelDeclVisitor
     : public clang::RecursiveASTVisitor<FindKernelDeclVisitor> {
 public:
@@ -311,7 +325,7 @@ public:
         if (!FullLocation.isValid() || FullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
             return true;
 
-        llvm::outs() << Declaration->getName() << "(";
+        llvm::outs() << Declaration->getName() << "(dim3 gd, dim3 bd, ";
 
         for (int i = 0; i < Declaration->getNumParams(); i++) {
             clang::ParmVarDecl* pvd = Declaration->getParamDecl(i);
