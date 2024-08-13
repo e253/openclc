@@ -1,6 +1,7 @@
 #include "LLVMSPIRVLib/LLVMSPIRVLib.h"
 #include "fmt/color.h"
 #include "fmt/core.h"
+#include "fmt/ranges.h"
 #include "spirv-tools/optimizer.hpp"
 
 #include "clang/AST/ASTConsumer.h"
@@ -50,7 +51,7 @@ static llvm::ExitOnError LLVMExitOnErr;
 static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
 static cli::list<std::string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
 static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("spvbin.c"), cli::cat(OpenCLCOptions));
-static cli::opt<std::string> CSym("sym", cli::desc("Output C Initializer List Sym"), cli::init("__spv_src"), cli::cat(OpenCLCOptions));
+static cli::opt<std::string> CSym("sym", cli::desc("Output C Initializer List Sym"), cli::init("__spv_bin"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
@@ -297,19 +298,26 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     return action.takeModule();
 }
 
-// Globals to add arguments
-// class KernelParam {
-//     KernelParam::KernelParam(std::string decl, std::string name);
-//     KernelParam::~KernelParam();
-//
-//     KernelParam::
-// };
-//
-// struct Kernel {
-//     std::vector<KernelParam> kParams;
-// };
-//
-// static std::vector<Kernel> KernelDecls;
+struct Kernel {
+    /// Function Name
+    std::string kName;
+    /// Function Arg Type and Names
+    std::vector<std::string> kParams;
+
+    std::string toString()
+    {
+        std::string decl(this->kName);
+        decl.push_back('(');
+        for (int i = 0; i < kParams.size(); i++) {
+            decl.append(kParams[i]);
+            if (i < kParams.size() - 1)
+                decl.append(", ");
+        }
+        decl.append(")");
+        return decl;
+    }
+};
+static std::vector<Kernel> KernelDecls;
 
 class FindKernelDeclVisitor
     : public clang::RecursiveASTVisitor<FindKernelDeclVisitor> {
@@ -325,22 +333,32 @@ public:
         if (!FullLocation.isValid() || FullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
             return true;
 
-        llvm::outs() << Declaration->getName() << "(dim3 gd, dim3 bd, ";
+        std::vector<std::string> kParams;
+        kParams.push_back("dim3 gd");
+        kParams.push_back("dim3 bd");
 
         for (int i = 0; i < Declaration->getNumParams(); i++) {
             clang::ParmVarDecl* pvd = Declaration->getParamDecl(i);
             std::string paramType = pvd->getOriginalType().getAsString();
-            llvm::outs() << paramType << pvd->getName();
-            if (i < Declaration->getNumParams() - 1)
-                llvm::outs() << ", ";
+            if (paramType.find("__constant") != std::string::npos) {
+                paramType.replace(0, sizeof("__constant ") - 1, "");
+            }
+            if (paramType.find("__global") != std::string::npos)
+                paramType.replace(0, sizeof("__global ") - 1, "");
+            paramType.append(pvd->getName());
+            kParams.push_back(paramType);
         }
 
-        llvm::outs() << ");\n";
+        Kernel k = Kernel { .kName = std::string(Declaration->getName().data()), .kParams = kParams };
+        KernelDecls.push_back(k);
 
-        llvm::outs() << "Found declaration `"
-                     << Declaration->getName() << "` at "
-                     << FullLocation.getSpellingLineNumber() << ":"
-                     << FullLocation.getSpellingColumnNumber() << "\n\n";
+        if (Verbose) {
+            fmt::println(
+                "Found declaration `{}` at {}:{}",
+                k.kName,
+                FullLocation.getSpellingLineNumber(),
+                FullLocation.getSpellingColumnNumber());
+        }
 
         return true;
     }
@@ -482,7 +500,7 @@ void SourceToKernelDecls(llvm::LLVMContext& ctx, std::string& fileName)
 
     const bool success = clangInstance.ExecuteAction(*std::make_unique<FindKernelDeclAction>());
     if (!success) {
-        llvm::errs() << "FindNamedClassAction failed\n";
+        fmt::print(err, "FindNamedClassAction failed\n");
     }
 }
 
@@ -508,6 +526,12 @@ int main(int argc, const char** argv)
             fmt::print(fg(fmt::color::green), "Debug: Success\n");
     }
 
+    for (std::string fileName : InputFilenames) {
+        if (Verbose)
+            fmt::println("Debug: Examining {} for Kernel Declarations", fileName);
+        SourceToKernelDecls(ctx, fileName);
+    }
+
     std::unique_ptr<llvm::Module> mod(mods.back().release());
     mods.pop_back();
     llvm::Linker L(*mod);
@@ -517,12 +541,6 @@ int main(int argc, const char** argv)
             fmt::print(err, "Link Step Failed\n");
             return 1;
         }
-    }
-
-    for (std::string fileName : InputFilenames) {
-        if (Verbose)
-            fmt::print("Debug: Examining {} for Kernel Declarations", fileName);
-        SourceToKernelDecls(ctx, fileName);
     }
 
     if (Verbose)
@@ -591,4 +609,10 @@ int main(int argc, const char** argv)
     }
 
     outFile.close();
+
+    std::ofstream genHeader("kernels.h");
+    for (Kernel kDecl : KernelDecls) {
+        genHeader << kDecl.toString() << ";" << std::endl;
+    }
+    genHeader.close();
 }

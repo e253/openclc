@@ -29,7 +29,6 @@ pub fn build(b: *std.Build) void {
         },
         .flags = &.{
             "-DCL_TARGET_OPENCL_VERSION=300",
-            "-DOCLC_CRASH_ON_ERROR",
         },
     });
     exe.addIncludePath(b.path("../../runtime"));

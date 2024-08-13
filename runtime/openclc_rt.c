@@ -3,21 +3,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define CL_CHECK(err)                                                                                                      \
-    if (err != CL_SUCCESS) {                                                                                               \
-        fprintf(stderr, "OpenCL Error Code %d: '%s' encountered at %s:%d\n", err, opencl_errstr(err), __FILE__, __LINE__); \
-        crash();                                                                                                           \
-        return 1;                                                                                                          \
-    }
-
-static cl_device_id dev;
-static cl_context ctx;
-static cl_command_queue queue;
+static cl_device_id dev = NULL;
+static cl_context ctx = NULL;
+static cl_command_queue queue = NULL;
 static bool cl_initialized = false;
 
-cl_context get_context() { return ctx; }
-cl_device_id get_device() { return dev; }
-cl_command_queue get_queue() { return queue; }
+cl_context oclcContext() { return ctx; }
+cl_device_id oclcDevice() { return dev; }
+cl_command_queue oclcQueue() { return queue; }
 
 #define CaseReturnString(x) \
     case x:                 \
@@ -89,14 +82,6 @@ const char* opencl_errstr(cl_int err)
     }
 }
 
-/// Process exits if OCLC_CRASH_ON_ERROR is defined
-static void crash()
-{
-#ifdef OCLC_CRASH_ON_ERROR
-    exit(1);
-#endif
-}
-
 /// Sets the first GPU found as the internal `dev`
 static int get_first_gpu()
 {
@@ -110,7 +95,7 @@ static int get_first_gpu()
     // no OpenCL drivers
     if (platformCount == 0) {
         fputs("No OpenCL Drivers Found", stderr);
-        crash();
+        oclcCrash();
         return false;
     }
 
@@ -135,28 +120,30 @@ static int get_first_gpu()
             err = clGetDeviceInfo(devices[j], CL_DEVICE_VERSION, 50, deviceClVersion, NULL);
             CL_CHECK(err)
 
-            if (strstr(deviceClVersion, "3.") != NULL) {
+            if (strstr(deviceClVersion, "3.") != NULL || strstr(deviceClVersion, "2.") != NULL) {
                 // We found a GPU that is OpenCL 3.0 capable
                 dev = devices[j];
                 free(devices);
                 free(platforms);
-                return false;
+                return 0;
             }
         }
 
         free(devices);
     }
 
+    fputs("No compatible GPUs found to execute Kernels", stderr);
+
     free(platforms);
 
-    return true;
+    return 1;
 }
 
 int oclcInit()
 {
     int _err = get_first_gpu();
     if (_err != 0) {
-        crash();
+        oclcCrash();
         return 1;
     }
 
@@ -176,7 +163,7 @@ int oclcInit()
 void* oclcMalloc(size_t sz)
 {
     if (sz == 0) {
-        crash();
+        oclcCrash();
         return MEM_FAILURE;
     }
 
@@ -185,8 +172,7 @@ void* oclcMalloc(size_t sz)
 
     if (err != CL_SUCCESS) {
         fprintf(stderr, "OpenCL Error Code %d: '%s' encountered at %s:%d\n", err, opencl_errstr(err), __FILE__, __LINE__);
-        crash();
-        // TODO: set some state for an error polling function.
+        oclcCrash();
         return MEM_FAILURE;
     }
 
@@ -197,8 +183,7 @@ int oclcFree(void* mem)
 {
     cl_int err = clReleaseMemObject((cl_mem)mem);
     if (err != CL_SUCCESS) {
-        crash();
-        // TODO: set some state for an error polling function.
+        oclcCrash();
         return 1;
     } else {
         return 0;
@@ -211,7 +196,7 @@ int oclcMemcpy(void* dst, void* src, size_t sz, OclcMemcpyDirection dir)
         return 0;
     if (dst == NULL || src == NULL) {
         fputs("null pointer supplied to copy", stderr);
-        crash();
+        oclcCrash();
         return 1;
     }
 
@@ -235,6 +220,73 @@ int oclcDeviceSynchronize()
 {
     cl_int err = clFinish(queue);
     CL_CHECK(err);
+
+    return 0;
+}
+
+void oclcCrash()
+{
+#ifndef OCLC_SILENT_FAIL
+    exit(1);
+#endif
+}
+
+int oclcBuildSpv(const unsigned char* spv, size_t spv_size, cl_program* prog)
+{
+    // TODO: Fallback to use of kernel source if SPV isn't supported
+
+    cl_int err;
+    *prog = clCreateProgramWithIL(ctx, spv, spv_size, &err);
+    CL_CHECK(err);
+    err = clBuildProgram(*prog, 1, &dev, NULL, NULL, NULL);
+
+    // since we use validated SPIR-V, this is unlikely to fail.
+    if (err != CL_SUCCESS) {
+        size_t log_size;
+        err = clGetProgramBuildInfo(*prog, dev, CL_PROGRAM_BUILD_LOG, 0, NULL, &log_size);
+        CL_CHECK(err)
+        char* log = (char*)malloc(log_size + 1);
+        err = clGetProgramBuildInfo(*prog, dev, CL_PROGRAM_BUILD_LOG, log_size + 1, log, NULL);
+        CL_CHECK(err)
+
+        fprintf(stderr, "OpenCL Build Failed:\n\n%s\n", log);
+        free(log);
+
+        return 1;
+    }
+
+    return 0;
+}
+
+int oclcValidateWorkDims(dim3 gd, dim3 bd, cl_uint* work_dim)
+{
+    *work_dim = 3;
+    if (gd.z * bd.z == 0) {
+        if (gd.z != 0 || bd.z != 0) {
+            fprintf(stderr, "Grid Dim (x:%d, y:%d, z:%d) incompatible with Block Dim (x:%d, y:%d, z:%d). Inconsistent work dimensions.", gd.x, gd.y, gd.z, bd.x, bd.y, bd.z);
+            oclcCrash();
+            return 1;
+        }
+        *work_dim = 2;
+    }
+    if (gd.y * bd.y == 0) {
+        if (gd.y != 0 || bd.y != 0) {
+            fprintf(stderr, "Grid Dim (x:%d, y:%d, z:%d) incompatible with Block Dim (x:%d, y:%d, z:%d). Inconsistent work dimensions.", gd.x, gd.y, gd.z, bd.x, bd.y, bd.z);
+            oclcCrash();
+            return 1;
+        }
+        if (gd.z != 0 || bd.z != 0) {
+            fprintf(stderr, "Grid Dim (x:%d, y:%d, z:%d) incompatible with Block Dim (x:%d, y:%d, z:%d). Inconsistent work dimensions.", gd.x, gd.y, gd.z, bd.x, bd.y, bd.z);
+            oclcCrash();
+            return 1;
+        }
+        *work_dim = 1;
+    }
+    if (gd.x * bd.x == 0) {
+        fprintf(stderr, "Grid Dim (x:%d, y:%d, z:%d) incompatible with Block Dim (x:%d, y:%d, z:%d). Must have some work in the x dimension!", gd.x, gd.y, gd.z, bd.x, bd.y, bd.z);
+        oclcCrash();
+        return 1;
+    }
 
     return 0;
 }
