@@ -1,6 +1,5 @@
 #include "openclc_rt.h"
 #include "spvbin.c"
-#include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 

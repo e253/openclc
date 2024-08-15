@@ -34,6 +34,7 @@
 #include <llvm/Support/MemoryBuffer.h>
 #include <memory>
 #include <spirv-tools/libspirv.h>
+#include <sstream>
 
 #define OPENCLC_VERSION "0.0.2"
 
@@ -302,6 +303,7 @@ struct Kernel {
     /// Function Name
     std::string kName;
     /// Function Arg Type and Names
+    std::vector<std::string> kParamTypes;
     std::vector<std::string> kParams;
 
     std::string toString()
@@ -309,6 +311,8 @@ struct Kernel {
         std::string decl(this->kName);
         decl.push_back('(');
         for (int i = 0; i < kParams.size(); i++) {
+            decl.append(kParamTypes[i]);
+            decl.append(" ");
             decl.append(kParams[i]);
             if (i < kParams.size() - 1)
                 decl.append(", ");
@@ -333,23 +337,29 @@ public:
         if (!FullLocation.isValid() || FullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
             return true;
 
+        std::vector<std::string> kParamTypes;
         std::vector<std::string> kParams;
-        kParams.push_back("dim3 gd");
-        kParams.push_back("dim3 bd");
+        kParamTypes.push_back("dim3");
+        kParamTypes.push_back("dim3");
+        kParams.push_back("gd");
+        kParams.push_back("bd");
 
         for (int i = 0; i < Declaration->getNumParams(); i++) {
             clang::ParmVarDecl* pvd = Declaration->getParamDecl(i);
             std::string paramType = pvd->getOriginalType().getAsString();
-            if (paramType.find("__constant") != std::string::npos) {
+            if (paramType.find("__constant") != std::string::npos)
                 paramType.replace(0, sizeof("__constant ") - 1, "");
-            }
             if (paramType.find("__global") != std::string::npos)
                 paramType.replace(0, sizeof("__global ") - 1, "");
-            paramType.append(pvd->getName());
-            kParams.push_back(paramType);
+            kParamTypes.push_back(paramType);
+            kParams.push_back(std::string(pvd->getName()));
         }
 
-        Kernel k = Kernel { .kName = std::string(Declaration->getName().data()), .kParams = kParams };
+        Kernel k = Kernel {
+            .kName = std::string(Declaration->getName()),
+            .kParamTypes = kParamTypes,
+            .kParams = kParams,
+        };
         KernelDecls.push_back(k);
 
         if (Verbose) {
@@ -615,4 +625,20 @@ int main(int argc, const char** argv)
         genHeader << kDecl.toString() << ";" << std::endl;
     }
     genHeader.close();
+
+    std::stringstream kernelCallSource;
+    const char* includes = R"(#include "openclc_rt.h"
+#include "spvbin.c"
+#include <stdbool.h>
+#include <stdio.h>
+
+static cl_program prog = NULL;
+static bool prog_built = false;
+)";
+
+    kernelCallSource << includes << "\n";
+    for (Kernel kDecl : KernelDecls) {
+        kernelCallSource << kDecl.toString() << " {} " << std::endl;
+    }
+    fmt::print("{}", kernelCallSource.str());
 }
