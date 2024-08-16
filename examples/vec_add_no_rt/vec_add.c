@@ -81,7 +81,7 @@ int main()
     ctx = clCreateContext(NULL, 1, &dev, NULL, NULL, &err);
     CL_CHECK(err)
 
-    prog = clCreateProgramWithIL(ctx, __spv_src, sizeof(__spv_src), &err);
+    prog = clCreateProgramWithIL(ctx, __spv_bin, sizeof(__spv_bin), &err);
     CL_CHECK(err);
     err = clBuildProgram(prog, 1, &dev, NULL, NULL, NULL);
 

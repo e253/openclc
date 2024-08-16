@@ -36,10 +36,10 @@ pub fn build(b: *std.Build) void {
 
 /// Compile OpenCL sources to a `spvbin.c` file for use in later build steps
 fn compileCL(b: *std.Build, sources: []const []const u8) void {
-    const openclc_cmd = b.addSystemCommand(&.{"openclc"});
+    const openclc_cmd = b.addSystemCommand(&.{"../../out/x86_64-linux-musl-x86_64/bin/openclc"});
     for (sources) |source| {
         openclc_cmd.addFileArg(b.path(source));
     }
-    openclc_cmd.addArgs(&.{ "-o", "spvbin.c" });
+    openclc_cmd.addArgs(&.{"--no-emit-invocations"});
     b.getInstallStep().dependOn(&openclc_cmd.step);
 }

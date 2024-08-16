@@ -52,6 +52,7 @@ static llvm::ExitOnError LLVMExitOnErr;
 static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
 static cli::list<std::string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
 static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("spvbin.c"), cli::cat(OpenCLCOptions));
+static cli::opt<bool> NoEmitInvocations("no-emit-invocations", cli::desc("Disable Generations of kernels.c and kernels.h files"), cli::init(false), cli::cat(OpenCLCOptions));
 static cli::opt<std::string> CSym("sym", cli::desc("Output C Initializer List Sym"), cli::init("__spv_bin"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
@@ -308,8 +309,7 @@ struct Kernel {
 
     std::string toString()
     {
-        std::string decl(this->kName);
-        decl.push_back('(');
+        std::string decl = fmt::format("int {}(dim3 gd, dim3 bd, ", this->kName);
         for (int i = 0; i < kParams.size(); i++) {
             decl.append(kParamTypes[i]);
             decl.append(" ");
@@ -337,12 +337,13 @@ public:
         if (!FullLocation.isValid() || FullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
             return true;
 
+        if (Declaration->getReturnType().getAsString() != std::string("void")) {
+            fmt::print(err, "Kernel Declaration `{}` has return type `{}`\n", Declaration->getName(), Declaration->getReturnType().getAsString());
+            exit(1);
+        }
+
         std::vector<std::string> kParamTypes;
         std::vector<std::string> kParams;
-        kParamTypes.push_back("dim3");
-        kParamTypes.push_back("dim3");
-        kParams.push_back("gd");
-        kParams.push_back("bd");
 
         for (int i = 0; i < Declaration->getNumParams(); i++) {
             clang::ParmVarDecl* pvd = Declaration->getParamDecl(i);
@@ -614,31 +615,84 @@ int main(int argc, const char** argv)
         }
 
         outFile << "};" << std::endl;
-    } else { // we want the spv bin directly
+    } else { // we only want the spv
         outFile.write(reinterpret_cast<const char*>(optSPV.data()), optSPV.size() * 4);
+        return 0;
     }
 
     outFile.close();
 
-    std::ofstream genHeader("kernels.h");
-    for (Kernel kDecl : KernelDecls) {
-        genHeader << kDecl.toString() << ";" << std::endl;
-    }
-    genHeader.close();
+    if (!NoEmitInvocations) {
 
-    std::stringstream kernelCallSource;
-    const char* includes = R"(#include "openclc_rt.h"
+        std::ofstream genHeader("kernels.h");
+        // TODO: Add type definitions
+        genHeader << "#include \"openclc_rt.h\"\n\n";
+        for (Kernel kDecl : KernelDecls) {
+            genHeader << kDecl.toString() << ";" << std::endl;
+        }
+        genHeader.close();
+
+        std::ofstream kernelCallSource("kernels.c");
+        kernelCallSource << R"(#include "openclc_rt.h"
 #include "spvbin.c"
 #include <stdbool.h>
 #include <stdio.h>
 
 static cl_program prog = NULL;
 static bool prog_built = false;
+
 )";
 
-    kernelCallSource << includes << "\n";
-    for (Kernel kDecl : KernelDecls) {
-        kernelCallSource << kDecl.toString() << " {} " << std::endl;
+        for (Kernel kDecl : KernelDecls) {
+            kernelCallSource << kDecl.toString() << "\n{ \n";
+            kernelCallSource << R"(
+    if (!prog_built) {
+        int err = oclcBuildSpv(__spv_bin, sizeof(__spv_bin), &prog);
+        if (err != 0) {
+            return 1;
+        } else {
+            prog_built = true;
+        }
     }
-    fmt::print("{}", kernelCallSource.str());
+
+    cl_int err;
+)";
+
+            kernelCallSource << fmt::format("    cl_kernel kernel = clCreateKernel(prog, \"{}\", &err);\n", kDecl.kName);
+            kernelCallSource << "    CL_CHECK(err)\n\n";
+
+            for (int i = 0; i < kDecl.kParams.size(); i++) {
+                std::string paramName = kDecl.kParams[i];
+                std::string paramType = kDecl.kParamTypes[i];
+                bool typeIsPointer = paramType.find("*") != std::string::npos;
+                if (typeIsPointer) {
+                    kernelCallSource << fmt::format("    err = clSetKernelArg(kernel, {}, sizeof(cl_mem), (cl_mem*)&{});\n", i, paramName);
+                    kernelCallSource << "    CL_CHECK(err)\n";
+                } else {
+                    // if `paramType` type is not primitive, `kernels.c` may not build
+                    kernelCallSource << fmt::format("    err = clSetKernelArg(kernel, {}, sizeof({}), {});\n", i, paramType, paramName);
+                    kernelCallSource << "    CL_CHECK(err)\n";
+                }
+            }
+
+            kernelCallSource << R"(
+    cl_uint work_dim;
+    if (oclcValidateWorkDims(gd, bd, &work_dim) != 0) {
+        return 1;
+    }
+
+    const size_t global_work_offset = 0;
+    const size_t global_work_size[3] = { gd.x * bd.x, gd.y * bd.y, gd.z * bd.z };
+    const size_t local_work_size[3] = { bd.x, bd.y, bd.z };
+
+    err = clEnqueueNDRangeKernel(oclcQueue(), kernel, work_dim, &global_work_offset, global_work_size, local_work_size, 0, NULL, NULL);
+    CL_CHECK(err)
+
+    return 0;
+)";
+
+            kernelCallSource << "}\n";
+        }
+        kernelCallSource.close();
+    }
 }

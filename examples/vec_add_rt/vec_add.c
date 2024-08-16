@@ -1,11 +1,6 @@
-#include "openclc_rt.h"
+#include "kernels.h"
 #include <assert.h>
-#include <stdbool.h>
 #include <stdio.h>
-#include <string.h>
-
-/// Decls to be in generated header
-int add(dim3 gd, dim3 bd, float* A, float* B, float* C);
 
 int main()
 {

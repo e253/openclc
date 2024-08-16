@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
         .files = &.{
             "vec_add.c",
             "../../runtime/openclc_rt.c",
-            "vec_add.cl.gen.c",
+            "kernels.c",
         },
         .flags = &.{
             "-DCL_TARGET_OPENCL_VERSION=300",
@@ -44,12 +44,11 @@ pub fn build(b: *std.Build) void {
     run_step.dependOn(&run_cmd.step);
 }
 
-/// Compile OpenCL sources to a `spvbin.c` file for use in later build steps
+/// Compile OpenCL sources to a `spvbin.c`, `kernels.c`, and `kernels.h`
 fn compileCL(b: *std.Build, sources: []const []const u8) void {
-    const openclc_cmd = b.addSystemCommand(&.{"openclc"});
+    const openclc_cmd = b.addSystemCommand(&.{"../../out/x86_64-linux-musl-x86_64/bin/openclc"});
     for (sources) |source| {
         openclc_cmd.addFileArg(b.path(source));
     }
-    openclc_cmd.addArgs(&.{ "-o", "spvbin.c" });
     b.getInstallStep().dependOn(&openclc_cmd.step);
 }
