@@ -311,9 +311,7 @@ struct Kernel {
     {
         std::string decl = fmt::format("int {}(dim3 gd, dim3 bd, ", this->kName);
         for (int i = 0; i < kParams.size(); i++) {
-            decl.append(kParamTypes[i]);
-            decl.append(" ");
-            decl.append(kParams[i]);
+            decl.append(fmt::format("{} {}", kParamTypes[i], kParams[i]));
             if (i < kParams.size() - 1)
                 decl.append(", ");
         }
@@ -357,7 +355,7 @@ public:
         }
 
         Kernel k = Kernel {
-            .kName = std::string(Declaration->getName()),
+            .kName = Declaration->getNameAsString(),
             .kParamTypes = kParamTypes,
             .kParams = kParams,
         };
