@@ -10,7 +10,6 @@ a.out
 *.a
 *.so
 spvbin.c
-kernels.c
-kernels.h
+openclc-tmp
 .zig-cache
 zig-out

@@ -1,4 +1,3 @@
-#include "spvbin.c"
 #define CL_TARGET_OPENCL_VERSION 300
 #include <CL/opencl.h>
 #include <assert.h>
@@ -16,9 +15,12 @@ static cl_device_id dev;
 static cl_context ctx;
 static cl_program prog;
 
+static const char* cl_source = "kernel void add(constant float *A, constant float *B, global float *C) { size_t gid = get_global_id(0); C[gid] = A[gid] + B[gid]; }";
+
 /// Sets dev and returns true if GPU found, otherwise returns false
 /// I think this is a fine heuristic for device discovery
-static bool get_first_gpu()
+static bool
+get_first_gpu()
 {
     cl_int err;
 
@@ -81,7 +83,7 @@ int main()
     ctx = clCreateContext(NULL, 1, &dev, NULL, NULL, &err);
     CL_CHECK(err)
 
-    prog = clCreateProgramWithIL(ctx, __spv_bin, sizeof(__spv_bin), &err);
+    prog = clCreateProgramWithSource(ctx, 1, (const char**)&cl_source, NULL, &err);
     CL_CHECK(err);
     err = clBuildProgram(prog, 1, &dev, NULL, NULL, NULL);
 
@@ -167,8 +169,8 @@ int main()
     }
 
     puts("\n---------------------------\n");
-    puts("Passed\n");
-    puts("---------------------------\n");
+    puts("Passed");
+    puts("\n---------------------------\n");
 
     clSVMFree(ctx, a);
     clSVMFree(ctx, b);

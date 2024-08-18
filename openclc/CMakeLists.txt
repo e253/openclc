@@ -21,11 +21,12 @@ add_library(opencl_headers STATIC IMPORTED GLOBAL)
 add_dependencies(opencl_headers buildOpenCLHeaderBin)
 set_target_properties(opencl_headers PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/${OPENCL_H_LIB})
 
-add_executable(openclc openclc.cpp)
+add_executable(openclc openclc.cpp DeviceFrontendDiagnosticPrinter.cpp)
 
 target_include_directories(openclc
   PRIVATE
     ${CMAKE_INSTALL_PREFIX}/include
+    ${CMAKE_CURRENT_LIST_DIR}
 )
 target_link_directories(openclc PUBLIC ${CMAKE_INSTALL_PREFIX}/lib)
 

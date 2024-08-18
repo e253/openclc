@@ -1,8 +1,10 @@
+#include "DeviceFrontendDiagnosticPrinter.h"
 #include "LLVMSPIRVLib/LLVMSPIRVLib.h"
 #include "fmt/color.h"
 #include "fmt/core.h"
 #include "fmt/ranges.h"
 #include "spirv-tools/optimizer.hpp"
+#include "unistd.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/CodeGen/CodeGenAction.h"
@@ -48,6 +50,7 @@ static llvm::ExitOnError LLVMExitOnErr;
 // https://llvm.org/docs/CommandLine.html
 static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
 static cli::list<std::string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
+static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("a.out"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
@@ -456,7 +459,7 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
     std::string log;
     llvm::raw_string_ostream diagnosticsStream(log);
     clangInstance.createDiagnostics(
-        new clang::TextDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
+        new clang::DeviceFrontendDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
         true);
 
     // input
@@ -544,10 +547,15 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
         clangInstance.getHeaderSearchOpts().AddPath(include, clang::frontend::After, false, false);
     }
 
-    const bool success = clangInstance.ExecuteAction(*std::make_unique<FindKernelDeclAction>());
-    if (!success) {
-        fmt::print(err, "FindNamedClassAction failed\n");
-    }
+    clangInstance.ExecuteAction(*std::make_unique<FindKernelDeclAction>());
+
+    clang::DiagnosticConsumer* const consumer = clangInstance.getDiagnostics().getClient();
+    consumer->finish();
+
+    if ((consumer->getNumWarnings() > 0) || (consumer->getNumErrors() > 0))
+        fmt::print(err, "{}", log);
+    if (consumer->getNumErrors() > 0)
+        exit(1);
 }
 
 std::string GenerateKernelInvocation(Kernel k)
@@ -613,6 +621,29 @@ std::string GenerateKernelInvocation(Kernel k)
     return outFile.str();
 }
 
+std::filesystem::path GetRuntimeSourcesDir()
+{
+    char exePath[200];
+    int _err = readlink("/proc/self/exe", exePath, sizeof(exePath));
+    if (_err == -1) {
+        fmt::print(err, "readlink(\"/proc/self/exe\") failed with exit code {}", _err);
+        exit(1);
+    }
+
+    std::filesystem::path runtimeSourcesDir(exePath);
+
+    runtimeSourcesDir.remove_filename();
+
+#ifndef OCLC_RELEASE
+    runtimeSourcesDir.append("..");
+    runtimeSourcesDir.append("..");
+    runtimeSourcesDir.append("..");
+    runtimeSourcesDir.append("runtime");
+#endif
+
+    return runtimeSourcesDir;
+}
+
 static void PrintVersion(llvm::raw_ostream& ros)
 {
     ros << OPENCLC_VERSION << "\n";
@@ -626,8 +657,7 @@ int main(int argc, const char** argv)
 
     llvm::LLVMContext ctx;
 
-    std::vector<std::pair<std::string, std::string>> inputFiles;
-    std::vector<std::unique_ptr<llvm::Module>> mods;
+    std::vector<std::string> hostCompilerInputFiles;
 
     // For each file
     //     Read the contents manually
@@ -641,7 +671,6 @@ int main(int argc, const char** argv)
         inFileStream.seekg(0);
         std::string fileContents(fSize, '\0');
         inFileStream.read(&fileContents[0], fSize);
-        inputFiles.push_back(std::pair(fileName, fileContents));
 
         ExtractDeviceCode(ctx, fileContents, fileName);
 
@@ -655,7 +684,7 @@ int main(int argc, const char** argv)
         }
 
         if (Verbose)
-            fmt::print("Debug: Found Device Code '{}'", deviceCode);
+            fmt::print("Debug: Found Device Code '{}'\n", deviceCode);
 
         // Compile device sources in `KernelDefinitions` to LLVM IR
         std::unique_ptr<llvm::Module> mod = SourceToModule(ctx, deviceCode, fileName);
@@ -703,7 +732,7 @@ int main(int argc, const char** argv)
 
         // Convert generated SPIR-V to a c initializer list
         std::stringstream spvInitListStream;
-        spvInitListStream << "const unsigned char __spv_bin[] = {";
+        spvInitListStream << "static const unsigned char __spv_bin[] = {";
         const uint8_t* optSpvBytePtr = reinterpret_cast<const uint8_t*>(optSPV.data());
         for (int byte_i = 0; byte_i < optSPV.size() * 4; byte_i++) {
             spvInitListStream << "0x" << std::hex << (int)optSpvBytePtr[byte_i] << ",";
@@ -711,17 +740,56 @@ int main(int argc, const char** argv)
         spvInitListStream << "};\n";
         std::string spvInitList = spvInitListStream.str();
 
-        // Loop over KernelDecls in this File
-        // We use deviceCode to find the new start location of each kernel
-        // As we do the replacements, the Kernel struct sourceLocations will be incorrect
-        for (auto kDecl : KernelDecls) {
+        // Write the new contents to ./openclc-tmp/openclc_gen.inputfile.[c,cc,cxx,cpp]
+        std::filesystem::create_directory("./openclc-tmp");
+        std::string outFileName = std::string(std::filesystem::path(fileName).filename());
+        if (outFileName.ends_with(".cl")) {
+            outFileName.replace(outFileName.size() - 3, 3, ".c");
+        } else if (outFileName.ends_with(".ocl")) {
+            outFileName.replace(outFileName.size() - 4, 4, ".c");
+        } else if (outFileName.ends_with(".clpp")) {
+            outFileName.replace(outFileName.size() - 5, 5, ".cpp");
+        } else {
+            outFileName.replace(outFileName.size() - 6, 6, ".cpp");
         }
+        std::string outFilePath = fmt::format("./openclc-tmp/{}", outFileName);
+        hostCompilerInputFiles.push_back(outFilePath);
 
-        // Write the new contents to ./.openclc-tmp/inputfile.gen.[c,cc,cpp,<whatever exception>]
+        std::ofstream postProcessedOutFile(outFilePath);
+        postProcessedOutFile.write(spvInitList.c_str(), spvInitList.size());
+        std::size_t offset = 0;
+        for (auto kDecl : KernelDecls) {
+            std::size_t start = kDecl.beginSourceOffset(fileContents);
+            std::size_t end = kDecl.endSourceOffset(fileContents);
 
-        // Invokve host compiler, allow --ccbin flag
+            postProcessedOutFile.write(fileContents.c_str() + offset, start); // write until kernel start
+
+            std::string replacementRoutine = GenerateKernelInvocation(kDecl); // write new invocation
+            postProcessedOutFile.write(replacementRoutine.c_str(), replacementRoutine.size());
+
+            offset += end + 1; // move fileContents offset to start after the kernel
+        }
+        if (offset != fileContents.size()) { // we may have some source left to write out
+            postProcessedOutFile.write(fileContents.c_str() + offset, fileContents.size() - offset);
+        }
 
         // Reset Global
         KernelDecls = std::vector<Kernel>();
     }
+
+    // Invoke host compiler on generated file
+    std::filesystem::path runtimeSourceDir = GetRuntimeSourcesDir();
+    std::filesystem::path runtimeSource(runtimeSourceDir);
+    runtimeSource.append("openclc_rt.c");
+
+    std::string hostCompilerInputs;
+    for (auto hostCompilerInput : hostCompilerInputFiles) {
+        hostCompilerInputs.append(hostCompilerInput);
+        hostCompilerInputs.push_back(' ');
+    }
+
+    std::string hostCompilerInvocation = fmt::format("zig cc {} {} -I{} -lOpenCL -o {}", hostCompilerInputs, std::string(runtimeSource), std::string(runtimeSourceDir), OutputFileName);
+    if (Verbose)
+        fmt::print("Debug: Host compiler invocation '{}'\n", hostCompilerInvocation);
+    std::system(hostCompilerInvocation.c_str());
 }
