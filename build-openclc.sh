@@ -36,4 +36,4 @@ cmake "$ROOTDIR/openclc" \
   -DCMAKE_RANLIB="/usr/lib/llvm-18/bin/llvm-ranlib" \
   -DCMAKE_CXX_FLAGS="-std=c++20"
 
-make install
+make install -j`nproc`

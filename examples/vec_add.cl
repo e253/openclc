@@ -1,6 +1,12 @@
-#include "kernels.h"
 #include <assert.h>
+#include <openclc_rt.h>
 #include <stdio.h>
+
+kernel void add(constant float* A, constant float* B, global float* C)
+{
+    size_t gid = get_global_id(0);
+    C[gid] = A[gid] + B[gid];
+}
 
 int main()
 {
@@ -31,11 +37,10 @@ int main()
     oclcMemcpy(dB, B, sz, oclcMemcpyHostToDevice);
     oclcMemcpy(dC, C, sz, oclcMemcpyHostToDevice);
 
+    // Invoke the Kernel!
     dim3 gridDim = { n / 32 };
     dim3 blockDim = { 32 };
-
-    // Invoke the Kernel!
-    add(gridDim, blockDim, dA, dB, dC);
+    add<<<gridDim, blockDim>>>(dA, dB, dC);
 
     oclcMemcpy(C, dC, sz, oclcMemcpyDeviceToHost);
 

@@ -1,20 +1,19 @@
+#include "DeviceFrontendDiagnosticPrinter.h"
 #include "LLVMSPIRVLib/LLVMSPIRVLib.h"
 #include "fmt/color.h"
 #include "fmt/core.h"
 #include "fmt/ranges.h"
 #include "spirv-tools/optimizer.hpp"
-
+#include "unistd.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/CodeGen/CodeGenAction.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Frontend/FrontendActions.h"
-#include "clang/Tooling/Tooling.h"
-
-#include "clang/CodeGen/CodeGenAction.h"
-#include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Lex/PreprocessorOptions.h"
+#include "clang/Tooling/Tooling.h"
 #include "llvm/IR/LLVMContext.h"
 #include "llvm/IR/Module.h"
 #include "llvm/Linker/Linker.h"
@@ -33,10 +32,11 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <memory>
+#include <regex>
 #include <spirv-tools/libspirv.h>
 #include <sstream>
 
-#define OPENCLC_VERSION "0.0.2"
+#define OPENCLC_VERSION "0.0.3"
 
 namespace cli = llvm::cl;
 
@@ -47,13 +47,11 @@ static fmt::text_style err = fg(fmt::color::crimson) | fmt::emphasis::bold;
 static fmt::text_style good = fg(fmt::color::green);
 static llvm::ExitOnError LLVMExitOnErr;
 
-/* Command Line Options */
-// https://llvm.org/docs/CommandLine.html
+/// Command Line Options
+/// https://llvm.org/docs/CommandLine.html
 static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
 static cli::list<std::string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
-static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("spvbin.c"), cli::cat(OpenCLCOptions));
-static cli::opt<bool> NoEmitInvocations("no-emit-invocations", cli::desc("Disable Generations of kernels.c and kernels.h files"), cli::init(false), cli::cat(OpenCLCOptions));
-static cli::opt<std::string> CSym("sym", cli::desc("Output C Initializer List Sym"), cli::init("__spv_bin"), cli::cat(OpenCLCOptions));
+static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("a.out"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
@@ -118,7 +116,7 @@ public:
     std::vector<char> vec;
 };
 
-/// function that acts as a stdout logger for the spvtools::Optimizer
+/// Function that acts as a stdout logger for the spvtools::Optimizer
 void optimizerMessageConsumer(spv_message_level_t level, const char* source, const spv_position_t& position, const char* message)
 {
     std::string strLevel;
@@ -140,7 +138,7 @@ void optimizerMessageConsumer(spv_message_level_t level, const char* source, con
     fmt::print(err, "OPTIMIZER_{}: `{}`\n", strLevel, message);
 }
 
-/// utility needed in SourceToModule, to set contents of `opencl-c.h`
+/// Utility needed in SourceToModule, to set contents of `opencl-c.h`
 struct OpenCLBuiltinMemoryBuffer final : public llvm::MemoryBuffer {
     OpenCLBuiltinMemoryBuffer(const void* data, uint64_t data_length)
     {
@@ -156,15 +154,16 @@ struct OpenCLBuiltinMemoryBuffer final : public llvm::MemoryBuffer {
     virtual ~OpenCLBuiltinMemoryBuffer() override { }
 };
 
-/// library based equivalent to `clang -c -emit-llvm`.
-///
 /// Kills process with helpful messages if there are compilation errors.
 ///
 /// Credit: https://github.com/google/clspv/blob/2776a72da17dfffdd1680eeaff26a8bebdaa60f7/lib/Compiler.cpp#L1079
-std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string& fileName)
+std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
 {
     clang::CompilerInstance clangInstance;
-    clang::FrontendInputFile clSrcFile(fileName, clang::InputKind(clang::Language::OpenCL)); // TODO: decide language based on `.cl` or `.clpp` exentsion
+
+    // TODO: decide language based on `.cl` or `.clpp` exentsion
+    llvm::MemoryBufferRef membufref = llvm::MemoryBufferRef(llvm::StringRef(fileContents), llvm::StringRef(fileName));
+    clang::FrontendInputFile clSrcFile(membufref, clang::InputKind(clang::Language::OpenCL));
 
     // warnings to disable
     clangInstance.getDiagnosticOpts().Warnings.push_back("no-unsafe-buffer-usage");
@@ -306,6 +305,9 @@ struct Kernel {
     /// Function Arg Type and Names
     std::vector<std::string> kParamTypes;
     std::vector<std::string> kParams;
+    // (x,y): x lines, then y chars to the correct place in the source string
+    std::pair<std::size_t, std::size_t> beginSourceLocation;
+    std::pair<std::size_t, std::size_t> endSourceLocation;
 
     std::string toString()
     {
@@ -317,6 +319,34 @@ struct Kernel {
         }
         decl.append(")");
         return decl;
+    }
+
+    std::size_t beginSourceOffset(std::string src)
+    {
+        std::size_t charOffset = 0;
+        std::size_t newlinesEncountered = 0;
+        while (newlinesEncountered < (std::get<0>(this->beginSourceLocation) - 1)) {
+            if (src.at(charOffset) == '\n')
+                newlinesEncountered++;
+            charOffset++;
+        }
+        charOffset += (std::get<1>(this->beginSourceLocation) - 1);
+
+        return charOffset;
+    }
+
+    std::size_t endSourceOffset(std::string src)
+    {
+        std::size_t charOffset = 0;
+        std::size_t newlinesEncountered = 0;
+        while (newlinesEncountered < (std::get<0>(this->endSourceLocation) - 1)) {
+            if (src.at(charOffset) == '\n')
+                newlinesEncountered++;
+            charOffset++;
+        }
+        charOffset += (std::get<1>(this->endSourceLocation) - 1);
+
+        return charOffset;
     }
 };
 static std::vector<Kernel> KernelDecls;
@@ -331,12 +361,12 @@ public:
 
     bool VisitFunctionDecl(clang::FunctionDecl* Declaration)
     {
-        clang::FullSourceLoc FullLocation = Context->getFullLoc(Declaration->getBeginLoc());
-        if (!FullLocation.isValid() || FullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
+        clang::FullSourceLoc startFullLocation = Context->getFullLoc(Declaration->getBeginLoc());
+        if (!startFullLocation.isValid() || startFullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
             return true;
 
         if (Declaration->getReturnType().getAsString() != std::string("void")) {
-            fmt::print(err, "Kernel Declaration `{}` has return type `{}`\n", Declaration->getName(), Declaration->getReturnType().getAsString());
+            fmt::print(err, "Kernel Declaration `{}` has return type `{}`\n", Declaration->getNameAsString(), Declaration->getReturnType().getAsString());
             exit(1);
         }
 
@@ -346,27 +376,37 @@ public:
         for (int i = 0; i < Declaration->getNumParams(); i++) {
             clang::ParmVarDecl* pvd = Declaration->getParamDecl(i);
             std::string paramType = pvd->getOriginalType().getAsString();
+
             if (paramType.find("__constant") != std::string::npos)
                 paramType.replace(0, sizeof("__constant ") - 1, "");
             if (paramType.find("__global") != std::string::npos)
                 paramType.replace(0, sizeof("__global ") - 1, "");
+            if (paramType.find("__local") != std::string::npos) {
+                fmt::print("__local memory used in kernel `{}`, but dynamically allocated smem is not supported\n", Declaration->getNameAsString());
+                exit(1);
+            }
+
             kParamTypes.push_back(paramType);
             kParams.push_back(std::string(pvd->getName()));
         }
 
-        Kernel k = Kernel {
-            .kName = Declaration->getNameAsString(),
-            .kParamTypes = kParamTypes,
-            .kParams = kParams,
-        };
-        KernelDecls.push_back(k);
+        clang::FullSourceLoc endFullLocation = Context->getFullLoc(Declaration->getEndLoc());
+
+        KernelDecls.push_back(
+            Kernel {
+                .kName = Declaration->getNameAsString(),
+                .kParamTypes = kParamTypes,
+                .kParams = kParams,
+                .beginSourceLocation = std::pair(startFullLocation.getSpellingLineNumber(), startFullLocation.getSpellingColumnNumber()),
+                .endSourceLocation = std::pair(endFullLocation.getSpellingLineNumber(), endFullLocation.getSpellingColumnNumber()),
+            });
 
         if (Verbose) {
             fmt::println(
-                "Found declaration `{}` at {}:{}",
-                k.kName,
-                FullLocation.getSpellingLineNumber(),
-                FullLocation.getSpellingColumnNumber());
+                "Debug: Found Kernel `{}` at {}:{}",
+                Declaration->getNameAsString(),
+                startFullLocation.getSpellingLineNumber(),
+                startFullLocation.getSpellingColumnNumber());
         }
 
         return true;
@@ -401,12 +441,13 @@ public:
     }
 };
 
-/// Eventually, this will extract Kernel Declarations so we can
-/// Create cpu functions based on ../examples/vec_add_rt/vec_add.cl.gen.c
-void SourceToKernelDecls(llvm::LLVMContext& ctx, std::string& fileName)
+/// Populatates global `KernelDecls` with Kernels found in the input source code
+void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
 {
     clang::CompilerInstance clangInstance;
-    clang::FrontendInputFile clSrcFile(fileName, clang::InputKind(clang::Language::OpenCL)); // TODO: decide language based on `.cl` or `.clpp` exentsion
+
+    llvm::MemoryBufferRef membufref = llvm::MemoryBufferRef(llvm::StringRef(fileContents), llvm::StringRef(fileName));
+    clang::FrontendInputFile clSrcFile(membufref, clang::InputKind(clang::Language::OpenCL));
 
     // warnings to disable
     clangInstance.getDiagnosticOpts().Warnings.push_back("no-unsafe-buffer-usage");
@@ -419,7 +460,7 @@ void SourceToKernelDecls(llvm::LLVMContext& ctx, std::string& fileName)
     std::string log;
     llvm::raw_string_ostream diagnosticsStream(log);
     clangInstance.createDiagnostics(
-        new clang::TextDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
+        new clang::DeviceFrontendDiagnosticPrinter(diagnosticsStream, &clangInstance.getDiagnosticOpts()),
         true);
 
     // input
@@ -507,10 +548,119 @@ void SourceToKernelDecls(llvm::LLVMContext& ctx, std::string& fileName)
         clangInstance.getHeaderSearchOpts().AddPath(include, clang::frontend::After, false, false);
     }
 
-    const bool success = clangInstance.ExecuteAction(*std::make_unique<FindKernelDeclAction>());
-    if (!success) {
-        fmt::print(err, "FindNamedClassAction failed\n");
+    clangInstance.ExecuteAction(*std::make_unique<FindKernelDeclAction>());
+
+    clang::DiagnosticConsumer* const consumer = clangInstance.getDiagnostics().getClient();
+    consumer->finish();
+
+    if ((consumer->getNumWarnings() > 0) || (consumer->getNumErrors() > 0))
+        fmt::print(err, "{}", log);
+    if (consumer->getNumErrors() > 0)
+        exit(1);
+}
+
+/// Transforms kernel invocations to regular function calls
+std::string transformKernelInvocations(std::string sources)
+{
+    std::regex matchKernelInvocation(R"(([\d\w]+)\s?<<<\s*([\d\w]+)\s*,\s*([\d\w]+)\s*>>>\s?\()");
+    return std::regex_replace(sources, matchKernelInvocation, "$1($2, $3, ");
+}
+
+/// Generate invocation code from a `Kernel` struct
+std::string GenerateKernelInvocation(Kernel k)
+{
+    std::stringstream outFile;
+    outFile << R"(
+#include "openclc_rt.h"
+#include <stdbool.h>
+#include <stdio.h>
+
+static cl_program prog = NULL;
+static bool prog_built = false;
+)";
+
+    for (Kernel kDecl : KernelDecls) {
+        outFile << kDecl.toString() << "\n{\n";
+        outFile << R"(
+    if (!prog_built) {
+        int err = oclcBuildSpv(__spv_bin, sizeof(__spv_bin), &prog);
+        if (err != 0) {
+            return 1;
+        } else {
+            prog_built = true;
+        }
     }
+
+    cl_int err;
+)";
+
+        outFile << fmt::format(R"(
+    cl_kernel kernel = clCreateKernel(prog, "{}", &err);
+    CL_CHECK(err)
+
+)",
+            kDecl.kName);
+
+        for (int i = 0; i < kDecl.kParams.size(); i++) {
+            std::string paramName = kDecl.kParams[i];
+            std::string paramType = kDecl.kParamTypes[i];
+            bool typeIsPointer = paramType.find("*") != std::string::npos;
+            if (typeIsPointer) {
+                outFile << fmt::format(R"(
+    err = clSetKernelArg(kernel, {}, sizeof(cl_mem), (cl_mem*)&{}); 
+    CL_CHECK(err)
+)",
+                    i, paramName);
+            } else {
+                outFile << fmt::format(R"(
+    err = clSetKernelArg(kernel, {}, sizeof({}), {});
+    CL_CHECK(err)
+    )",
+                    i, paramType, paramName);
+            }
+        }
+    }
+
+    outFile << R"(
+    cl_uint work_dim;
+    if (oclcValidateWorkDims(gd, bd, &work_dim) != 0) {
+        return 1;
+    }
+
+    const size_t global_work_offset = 0;
+    const size_t global_work_size[3] = { gd.x * bd.x, gd.y * bd.y, gd.z * bd.z };
+    const size_t local_work_size[3] = { bd.x, bd.y, bd.z };
+
+    err = clEnqueueNDRangeKernel(oclcQueue(), kernel, work_dim, &global_work_offset, global_work_size, local_work_size, 0, NULL, NULL);
+    CL_CHECK(err)
+
+    return 0;
+}
+)";
+    return outFile.str();
+}
+
+std::filesystem::path GetRuntimeSourcesDir()
+{
+    char exePath[200];
+    int _err = readlink("/proc/self/exe", exePath, sizeof(exePath));
+    if (_err == -1) {
+        fmt::print(err, "readlink(\"/proc/self/exe\") failed with exit code {}", _err);
+        exit(1);
+    }
+
+    std::filesystem::path runtimeSourcesDir(exePath);
+
+    runtimeSourcesDir.remove_filename();
+
+#ifndef OCLC_RELEASE
+    runtimeSourcesDir.append("..");
+    runtimeSourcesDir.append("..");
+    runtimeSourcesDir.append("..");
+    runtimeSourcesDir.append("runtime");
+#endif
+
+    return runtimeSourcesDir;
 }
 
 static void PrintVersion(llvm::raw_ostream& ros)
@@ -526,171 +676,141 @@ int main(int argc, const char** argv)
 
     llvm::LLVMContext ctx;
 
-    std::vector<std::unique_ptr<llvm::Module>> mods;
-    for (std::string fileName : InputFilenames) {
-        if (Verbose)
-            fmt::print("Debug: Compiling {}\n", fileName);
-        mods.push_back(SourceToModule(ctx, fileName));
-        if (Verbose)
-            fmt::print(fg(fmt::color::green), "Debug: Success\n");
-    }
+    std::vector<std::string> hostCompilerInputFiles;
 
+    // For each file
+    //     Read the contents manually
+    //     Get the KernelDecls and compile the sources to spv
+    //     Replace the decl in the source with a cpu function that invokes the kernel
     for (std::string fileName : InputFilenames) {
-        if (Verbose)
-            fmt::println("Debug: Examining {} for Kernel Declarations", fileName);
-        SourceToKernelDecls(ctx, fileName);
-    }
+        // Read file contents
+        std::ifstream inFileStream(fileName);
+        inFileStream.seekg(0, std::ios_base::end);
+        std::size_t fSize = inFileStream.tellg();
+        inFileStream.seekg(0);
+        std::string fileContents(fSize, '\0');
+        inFileStream.read(&fileContents[0], fSize);
 
-    std::unique_ptr<llvm::Module> mod(mods.back().release());
-    mods.pop_back();
-    llvm::Linker L(*mod);
-    for (std::unique_ptr<llvm::Module>& mod : mods) {
-        bool error = L.linkInModule(std::move(mod), 0);
-        if (error) {
-            fmt::print(err, "Link Step Failed\n");
+        fileContents = transformKernelInvocations(fileContents);
+
+        ExtractDeviceCode(ctx, fileContents, fileName);
+
+        // Get Kernel definition strings found in AST traversal
+        // TODO: Move to `ExtractDeviceCode` code
+        std::string deviceCode;
+        for (Kernel kDecl : KernelDecls) {
+            std::size_t start = kDecl.beginSourceOffset(fileContents);
+            std::size_t end = kDecl.endSourceOffset(fileContents);
+            deviceCode.append(fileContents.substr(start, end - start + 1));
+        }
+
+        if (Verbose)
+            fmt::print("Debug: Found Device Code '{}'\n", deviceCode);
+
+        // Compile device sources in `KernelDefinitions` to LLVM IR
+        std::unique_ptr<llvm::Module> mod = SourceToModule(ctx, deviceCode, fileName);
+
+        // Compile device code in LLVM IR to SPIR-V
+        membuf mbuf;
+        std::ostream os(&mbuf);
+        SPIRV::TranslatorOpts translatorOptions(SpvVersion);
+        std::string llvmSpirvCompilationErrors;
+        bool success = llvm::writeSpirv(&*mod, translatorOptions, os, llvmSpirvCompilationErrors);
+        if (!success) {
+            fmt::print(err, "{}\n", llvmSpirvCompilationErrors);
             return 1;
         }
-    }
 
-    if (Verbose)
-        fmt::println("Debug: Successfully linked {} modules", mods.size() + 1);
+        assert(mbuf.vec.size() % 4 == 0 && "Generated SPIR-V is corrupt, exiting.");
+        std::vector<uint32_t> optSPV;
 
-    membuf mbuf;
-    std::ostream os(&mbuf);
-    SPIRV::TranslatorOpts translatorOptions(SpvVersion);
-    std::string llvmSpirvCompilationErrors;
-    bool success = llvm::writeSpirv(&*mod, translatorOptions, os, llvmSpirvCompilationErrors);
-    if (!success) {
-        fmt::print(err, "{}\n", llvmSpirvCompilationErrors);
-    } else if (Verbose) {
-        fmt::println("Debug: Emitted `{}` Debug", OutputFileName);
-    }
+        // Optimize SPIR-V
+        spv_target_env env;
+        switch (SpvVersion) {
+        case SPIRV::VersionNumber::SPIRV_1_0:
+            env = SPV_ENV_UNIVERSAL_1_0;
+        case SPIRV::VersionNumber::SPIRV_1_1:
+            env = SPV_ENV_UNIVERSAL_1_1;
+        case SPIRV::VersionNumber::SPIRV_1_2:
+            env = SPV_ENV_UNIVERSAL_1_2;
+        case SPIRV::VersionNumber::SPIRV_1_3:
+            env = SPV_ENV_UNIVERSAL_1_3;
+        case SPIRV::VersionNumber::SPIRV_1_4:
+            env = SPV_ENV_UNIVERSAL_1_4;
+        case SPIRV::VersionNumber::SPIRV_1_5:
+            env = SPV_ENV_UNIVERSAL_1_5;
+        }
 
-    assert(mbuf.vec.size() % 4 == 0 && "Generated SPIR-V is corrupt, exiting.");
-    std::vector<uint32_t> optSPV;
+        spvtools::Optimizer opt(env);
+        opt.RegisterPerformancePasses(!Debug);
+        opt.SetMessageConsumer(optimizerMessageConsumer);
+        opt.SetValidateAfterAll(true);
+        success = opt.Run(reinterpret_cast<const uint32_t*>(mbuf.vec.data()), mbuf.vec.size() / 4, &optSPV);
+        if (!success) {
+            fmt::print(err, "Optimization Passes for `a.out` failed\n");
+            return 1;
+        }
 
-    spv_target_env env;
-    switch (SpvVersion) {
-    case SPIRV::VersionNumber::SPIRV_1_0:
-        env = SPV_ENV_UNIVERSAL_1_0;
-    case SPIRV::VersionNumber::SPIRV_1_1:
-        env = SPV_ENV_UNIVERSAL_1_1;
-    case SPIRV::VersionNumber::SPIRV_1_2:
-        env = SPV_ENV_UNIVERSAL_1_2;
-    case SPIRV::VersionNumber::SPIRV_1_3:
-        env = SPV_ENV_UNIVERSAL_1_3;
-    case SPIRV::VersionNumber::SPIRV_1_4:
-        env = SPV_ENV_UNIVERSAL_1_4;
-    case SPIRV::VersionNumber::SPIRV_1_5:
-        env = SPV_ENV_UNIVERSAL_1_5;
-    }
-
-    spvtools::Optimizer opt(env);
-    opt.RegisterPerformancePasses(!Debug);
-    opt.SetMessageConsumer(optimizerMessageConsumer);
-    opt.SetValidateAfterAll(true);
-    success = opt.Run(reinterpret_cast<const uint32_t*>(mbuf.vec.data()), mbuf.vec.size() / 4, &optSPV);
-    if (!success) {
-        fmt::print(err, "Optimization Passes for {} failed\n", OutputFileName);
-        return 1;
-    } else if (Verbose) {
-        fmt::println("Debug: Optimized `{}` Successfully", OutputFileName);
-    }
-
-    std::ofstream outFile(OutputFileName);
-
-    // we want a c initializer list
-    if (OutputFileName.ends_with(".c")) {
-        outFile << "// Generated by OpenCLC " << std::endl;
-        outFile << std::endl;
-        outFile << "#pragma once" << std::endl;
-        outFile << std::endl;
-        outFile << "const unsigned char " << CSym << "[] = {";
-
+        // Convert generated SPIR-V to a c initializer list
+        std::stringstream spvInitListStream;
+        spvInitListStream << "static const unsigned char __spv_bin[] = {";
         const uint8_t* optSpvBytePtr = reinterpret_cast<const uint8_t*>(optSPV.data());
         for (int byte_i = 0; byte_i < optSPV.size() * 4; byte_i++) {
-            outFile << "0x" << std::hex << (int)optSpvBytePtr[byte_i] << ",";
+            spvInitListStream << "0x" << std::hex << (int)optSpvBytePtr[byte_i] << ",";
         }
+        spvInitListStream << "};\n";
+        std::string spvInitList = spvInitListStream.str();
 
-        outFile << "};" << std::endl;
-    } else { // we only want the spv
-        outFile.write(reinterpret_cast<const char*>(optSPV.data()), optSPV.size() * 4);
-        return 0;
-    }
-
-    outFile.close();
-
-    if (!NoEmitInvocations) {
-
-        std::ofstream genHeader("kernels.h");
-        // TODO: Add type definitions
-        genHeader << "#include \"openclc_rt.h\"\n\n";
-        for (Kernel kDecl : KernelDecls) {
-            genHeader << kDecl.toString() << ";" << std::endl;
-        }
-        genHeader.close();
-
-        std::ofstream kernelCallSource("kernels.c");
-        kernelCallSource << R"(#include "openclc_rt.h"
-#include "spvbin.c"
-#include <stdbool.h>
-#include <stdio.h>
-
-static cl_program prog = NULL;
-static bool prog_built = false;
-
-)";
-
-        for (Kernel kDecl : KernelDecls) {
-            kernelCallSource << kDecl.toString() << "\n{ \n";
-            kernelCallSource << R"(
-    if (!prog_built) {
-        int err = oclcBuildSpv(__spv_bin, sizeof(__spv_bin), &prog);
-        if (err != 0) {
-            return 1;
+        // Write the new contents to ./openclc-tmp/openclc_gen.inputfile.[c,cc,cxx,cpp]
+        std::filesystem::create_directory("./openclc-tmp");
+        std::string outFileName = std::string(std::filesystem::path(fileName).filename());
+        if (outFileName.ends_with(".cl")) {
+            outFileName.replace(outFileName.size() - 3, 3, ".c");
+        } else if (outFileName.ends_with(".ocl")) {
+            outFileName.replace(outFileName.size() - 4, 4, ".c");
+        } else if (outFileName.ends_with(".clpp")) {
+            outFileName.replace(outFileName.size() - 5, 5, ".cpp");
         } else {
-            prog_built = true;
+            outFileName.replace(outFileName.size() - 6, 6, ".cpp");
         }
-    }
+        std::string outFilePath = fmt::format("./openclc-tmp/{}", outFileName);
+        hostCompilerInputFiles.push_back(outFilePath);
 
-    cl_int err;
-)";
+        std::ofstream postProcessedOutFile(outFilePath);
+        postProcessedOutFile.write(spvInitList.c_str(), spvInitList.size());
+        std::size_t offset = 0;
+        for (auto kDecl : KernelDecls) {
+            std::size_t start = kDecl.beginSourceOffset(fileContents);
+            std::size_t end = kDecl.endSourceOffset(fileContents);
 
-            kernelCallSource << fmt::format("    cl_kernel kernel = clCreateKernel(prog, \"{}\", &err);\n", kDecl.kName);
-            kernelCallSource << "    CL_CHECK(err)\n\n";
+            postProcessedOutFile.write(fileContents.c_str() + offset, start); // write until kernel start
 
-            for (int i = 0; i < kDecl.kParams.size(); i++) {
-                std::string paramName = kDecl.kParams[i];
-                std::string paramType = kDecl.kParamTypes[i];
-                bool typeIsPointer = paramType.find("*") != std::string::npos;
-                if (typeIsPointer) {
-                    kernelCallSource << fmt::format("    err = clSetKernelArg(kernel, {}, sizeof(cl_mem), (cl_mem*)&{});\n", i, paramName);
-                    kernelCallSource << "    CL_CHECK(err)\n";
-                } else {
-                    // if `paramType` type is not primitive, `kernels.c` may not build
-                    kernelCallSource << fmt::format("    err = clSetKernelArg(kernel, {}, sizeof({}), {});\n", i, paramType, paramName);
-                    kernelCallSource << "    CL_CHECK(err)\n";
-                }
-            }
+            std::string replacementRoutine = GenerateKernelInvocation(kDecl); // write new invocation
+            postProcessedOutFile.write(replacementRoutine.c_str(), replacementRoutine.size());
 
-            kernelCallSource << R"(
-    cl_uint work_dim;
-    if (oclcValidateWorkDims(gd, bd, &work_dim) != 0) {
-        return 1;
-    }
-
-    const size_t global_work_offset = 0;
-    const size_t global_work_size[3] = { gd.x * bd.x, gd.y * bd.y, gd.z * bd.z };
-    const size_t local_work_size[3] = { bd.x, bd.y, bd.z };
-
-    err = clEnqueueNDRangeKernel(oclcQueue(), kernel, work_dim, &global_work_offset, global_work_size, local_work_size, 0, NULL, NULL);
-    CL_CHECK(err)
-
-    return 0;
-)";
-
-            kernelCallSource << "}\n";
+            offset += end + 1; // move fileContents offset to start after the kernel
         }
-        kernelCallSource.close();
+        if (offset != fileContents.size()) { // we may have some source left to write out
+            postProcessedOutFile.write(fileContents.c_str() + offset, fileContents.size() - offset);
+        }
+
+        // Reset Global
+        KernelDecls = std::vector<Kernel>();
     }
+
+    // Invoke host compiler on generated file
+    std::filesystem::path runtimeSourceDir = GetRuntimeSourcesDir();
+    std::filesystem::path runtimeSource(runtimeSourceDir);
+    runtimeSource.append("openclc_rt.c");
+
+    std::string hostCompilerInputs;
+    for (auto hostCompilerInput : hostCompilerInputFiles) {
+        hostCompilerInputs.append(hostCompilerInput);
+        hostCompilerInputs.push_back(' ');
+    }
+
+    std::string hostCompilerInvocation = fmt::format("zig cc {} {} -I{} -lOpenCL -o {}", hostCompilerInputs, std::string(runtimeSource), std::string(runtimeSourceDir), OutputFileName);
+    if (Verbose)
+        fmt::print("Debug: Host compiler invocation '{}'\n", hostCompilerInvocation);
+    std::system(hostCompilerInvocation.c_str());
 }
