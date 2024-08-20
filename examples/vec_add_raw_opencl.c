@@ -146,7 +146,7 @@ int main()
     cl_uint work_dim = 1;
     const size_t global_work_offset = 0;
     const size_t global_work_size = n;
-    const size_t local_work_size = 16;
+    const size_t local_work_size = 32;
     cl_event ev;
 
     err = clEnqueueNDRangeKernel(queue, kernel, work_dim, &global_work_offset, &global_work_size, &local_work_size, 0, NULL, &ev);

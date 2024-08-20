@@ -32,6 +32,7 @@
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <memory>
+#include <regex>
 #include <spirv-tools/libspirv.h>
 #include <sstream>
 
@@ -46,8 +47,8 @@ static fmt::text_style err = fg(fmt::color::crimson) | fmt::emphasis::bold;
 static fmt::text_style good = fg(fmt::color::green);
 static llvm::ExitOnError LLVMExitOnErr;
 
-/* Command Line Options */
-// https://llvm.org/docs/CommandLine.html
+/// Command Line Options
+/// https://llvm.org/docs/CommandLine.html
 static cli::OptionCategory OpenCLCOptions("OpenCLC Options");
 static cli::list<std::string> InputFilenames(cli::Positional, cli::desc("<Input files>"), cli::OneOrMore, cli::cat(OpenCLCOptions));
 static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), cli::init("a.out"), cli::cat(OpenCLCOptions));
@@ -115,7 +116,7 @@ public:
     std::vector<char> vec;
 };
 
-/// function that acts as a stdout logger for the spvtools::Optimizer
+/// Function that acts as a stdout logger for the spvtools::Optimizer
 void optimizerMessageConsumer(spv_message_level_t level, const char* source, const spv_position_t& position, const char* message)
 {
     std::string strLevel;
@@ -137,7 +138,7 @@ void optimizerMessageConsumer(spv_message_level_t level, const char* source, con
     fmt::print(err, "OPTIMIZER_{}: `{}`\n", strLevel, message);
 }
 
-/// utility needed in SourceToModule, to set contents of `opencl-c.h`
+/// Utility needed in SourceToModule, to set contents of `opencl-c.h`
 struct OpenCLBuiltinMemoryBuffer final : public llvm::MemoryBuffer {
     OpenCLBuiltinMemoryBuffer(const void* data, uint64_t data_length)
     {
@@ -558,66 +559,84 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
         exit(1);
 }
 
+/// Transforms kernel invocations to regular function calls
+std::string transformKernelInvocations(std::string sources)
+{
+    std::regex matchKernelInvocation(R"(([\d\w]+)\s?<<<\s*([\d\w]+)\s*,\s*([\d\w]+)\s*>>>\s?\()");
+    return std::regex_replace(sources, matchKernelInvocation, "$1($2, $3, ");
+}
+
+/// Generate invocation code from a `Kernel` struct
 std::string GenerateKernelInvocation(Kernel k)
 {
     std::stringstream outFile;
     outFile << R"(
-        #include "openclc_rt.h"
-        #include <stdbool.h>
-        #include <stdio.h>
+#include "openclc_rt.h"
+#include <stdbool.h>
+#include <stdio.h>
 
-        static cl_program prog = NULL;
-        static bool prog_built = false;
-    )";
+static cl_program prog = NULL;
+static bool prog_built = false;
+)";
 
     for (Kernel kDecl : KernelDecls) {
         outFile << kDecl.toString() << "\n{\n";
         outFile << R"(
-            if (!prog_built) {
-                int err = oclcBuildSpv(__spv_bin, sizeof(__spv_bin), &prog);
-                if (err != 0) {
-                    return 1;
-                } else {
-                    prog_built = true;
-                }
-            }
+    if (!prog_built) {
+        int err = oclcBuildSpv(__spv_bin, sizeof(__spv_bin), &prog);
+        if (err != 0) {
+            return 1;
+        } else {
+            prog_built = true;
+        }
+    }
 
-            cl_int err;
-        )";
+    cl_int err;
+)";
 
-        outFile << fmt::format("cl_kernel kernel = clCreateKernel(prog, \"{}\", &err);\n", kDecl.kName);
-        outFile << "CL_CHECK(err)\n\n";
+        outFile << fmt::format(R"(
+    cl_kernel kernel = clCreateKernel(prog, "{}", &err);
+    CL_CHECK(err)
+
+)",
+            kDecl.kName);
 
         for (int i = 0; i < kDecl.kParams.size(); i++) {
             std::string paramName = kDecl.kParams[i];
             std::string paramType = kDecl.kParamTypes[i];
             bool typeIsPointer = paramType.find("*") != std::string::npos;
             if (typeIsPointer) {
-                outFile << fmt::format("err = clSetKernelArg(kernel, {}, sizeof(cl_mem), (cl_mem*)&{});\n", i, paramName);
-                outFile << "CL_CHECK(err)\n";
+                outFile << fmt::format(R"(
+    err = clSetKernelArg(kernel, {}, sizeof(cl_mem), (cl_mem*)&{}); 
+    CL_CHECK(err)
+)",
+                    i, paramName);
             } else {
-                outFile << fmt::format("err = clSetKernelArg(kernel, {}, sizeof({}), {});\n", i, paramType, paramName);
-                outFile << "CL_CHECK(err)\n";
+                outFile << fmt::format(R"(
+    err = clSetKernelArg(kernel, {}, sizeof({}), {});
+    CL_CHECK(err)
+    )",
+                    i, paramType, paramName);
             }
         }
     }
 
     outFile << R"(
-        cl_uint work_dim;
-        if (oclcValidateWorkDims(gd, bd, &work_dim) != 0) {
-            return 1;
-        }
-
-        const size_t global_work_offset = 0;
-        const size_t global_work_size[3] = { gd.x * bd.x, gd.y * bd.y, gd.z * bd.z };
-        const size_t local_work_size[3] = { bd.x, bd.y, bd.z };
-
-        err = clEnqueueNDRangeKernel(oclcQueue(), kernel, work_dim, &global_work_offset, global_work_size, local_work_size, 0, NULL, NULL);
-        CL_CHECK(err)
-
-        return 0;
+    cl_uint work_dim;
+    if (oclcValidateWorkDims(gd, bd, &work_dim) != 0) {
+        return 1;
     }
-    )";
+
+    const size_t global_work_offset = 0;
+    const size_t global_work_size[3] = { gd.x * bd.x, gd.y * bd.y, gd.z * bd.z };
+    const size_t local_work_size[3] = { bd.x, bd.y, bd.z };
+
+    err = clEnqueueNDRangeKernel(oclcQueue(), kernel, work_dim, &global_work_offset, global_work_size, local_work_size, 0, NULL, NULL);
+    CL_CHECK(err)
+
+    return 0;
+}
+)";
     return outFile.str();
 }
 
@@ -671,6 +690,8 @@ int main(int argc, const char** argv)
         inFileStream.seekg(0);
         std::string fileContents(fSize, '\0');
         inFileStream.read(&fileContents[0], fSize);
+
+        fileContents = transformKernelInvocations(fileContents);
 
         ExtractDeviceCode(ctx, fileContents, fileName);
 
