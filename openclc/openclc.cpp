@@ -4,7 +4,6 @@
 #include "fmt/core.h"
 #include "fmt/ranges.h"
 #include "spirv-tools/optimizer.hpp"
-#include "unistd.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/CodeGen/CodeGenAction.h"
@@ -26,7 +25,6 @@
 #include <clang/Basic/LangStandard.h>
 #include <clang/Frontend/CompilerInvocation.h>
 #include <cstdint>
-#include <cstdlib>
 #include <fstream>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/ADT/StringRef.h>
@@ -35,6 +33,17 @@
 #include <regex>
 #include <spirv-tools/libspirv.h>
 #include <sstream>
+
+// OS specific includes
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif __APPLE__
+#include <mach-o/dyld.h>
+#else
+#include <cstdlib>
+#include <unistd.h>
+#endif
 
 #define OPENCLC_VERSION "0.0.3"
 
@@ -643,22 +652,34 @@ static bool prog_built = false;
 std::filesystem::path GetRuntimeSourcesDir()
 {
     char exePath[200];
-    int _err = readlink("/proc/self/exe", exePath, sizeof(exePath));
-    if (_err == -1) {
-        fmt::print(err, "readlink(\"/proc/self/exe\") failed with exit code {}", _err);
+#ifdef _WIN32
+    DWORD _err = GetModuleFileName(nullptr, exePath, sizeof(exePath));
+    if (_err == 0) {
+        fmt::print(err, "GetModuleFileName failed with code {}\n", GetLastError());
         exit(1);
     }
+#elif __APPLE__
+    uint32_t exePathSize = sizeof(exePath);
+    int _err = _NSGetExecutablePath(exePath, &exePathSize);
+    if (_err == -1) {
+        fmt::print(err, "_NSGetExecutablePath failed\n");
+        exit(1);
+    }
+#else
+    int _err = readlink("/proc/self/exe", exePath, sizeof(exePath));
+    if (_err == -1) {
+        fmt::print(err, "readlink(\"/proc/self/exe\") failed with exit code {}\n", _err);
+        exit(1);
+    }
+#endif
 
     std::filesystem::path runtimeSourcesDir(exePath);
 
-    runtimeSourcesDir.remove_filename();
+    if (std::filesystem::is_symlink(runtimeSourcesDir)) {
+        runtimeSourcesDir = std::filesystem::read_symlink(runtimeSourcesDir);
+    }
 
-#ifndef OCLC_RELEASE
-    runtimeSourcesDir.append("..");
-    runtimeSourcesDir.append("..");
-    runtimeSourcesDir.append("..");
-    runtimeSourcesDir.append("runtime");
-#endif
+    runtimeSourcesDir.remove_filename();
 
     return runtimeSourcesDir;
 }
@@ -763,7 +784,7 @@ int main(int argc, const char** argv)
 
         // Write the new contents to ./openclc-tmp/openclc_gen.inputfile.[c,cc,cxx,cpp]
         std::filesystem::create_directory("./openclc-tmp");
-        std::string outFileName = std::string(std::filesystem::path(fileName).filename());
+        std::string outFileName = std::string(std::filesystem::path(fileName).filename().string());
         if (outFileName.ends_with(".cl")) {
             outFileName.replace(outFileName.size() - 3, 3, ".c");
         } else if (outFileName.ends_with(".ocl")) {
@@ -809,7 +830,7 @@ int main(int argc, const char** argv)
         hostCompilerInputs.push_back(' ');
     }
 
-    std::string hostCompilerInvocation = fmt::format("zig cc {} {} -I{} -lOpenCL -o {}", hostCompilerInputs, std::string(runtimeSource), std::string(runtimeSourceDir), OutputFileName);
+    std::string hostCompilerInvocation = fmt::format("zig cc {} {} -I{} -lOpenCL -o {}", hostCompilerInputs, runtimeSource.string(), runtimeSourceDir.string(), OutputFileName);
     if (Verbose)
         fmt::print("Debug: Host compiler invocation '{}'\n", hostCompilerInvocation);
     std::system(hostCompilerInvocation.c_str());
