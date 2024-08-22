@@ -13,7 +13,7 @@ fi
 cd /tmp
 wget -q --show-progress --max-redirect 5 -O openclc.tar.gz "https://github.com/e253/openclc/releases/latest/download/openclc-$ARCH-$OS.tar.gz"
 mkdir -p $HOME/.openclc
-tar -xvzf openclc.tar.gz -C $HOME/.openclc --strip-components 7
+tar -xvzf openclc.tar.gz -C $HOME/.openclc
 rm openclc.tar.gz
 
 echo ""
