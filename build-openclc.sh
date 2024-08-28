@@ -37,3 +37,7 @@ cmake "$ROOTDIR/openclc" \
   -DCMAKE_CXX_FLAGS="-std=c++20"
 
 make install -j`nproc`
+
+cp "$ROOTDIR/runtime/openclc_rt.c" "$ROOTDIR/out/$TARGET-$MCPU/bin/openclc_rt.c"
+cp "$ROOTDIR/runtime/openclc_rt.h" "$ROOTDIR/out/$TARGET-$MCPU/bin/openclc_rt.h"
+cp -r "$ROOTDIR/third_party/OpenCL-Headers/CL" "$ROOTDIR/out/$TARGET-$MCPU/bin/CL"

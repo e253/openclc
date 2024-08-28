@@ -1,7 +1,9 @@
 #ifndef __OPENCLC_RT_H_
 #define __OPENCLC_RT_H_
 
-#include <CL/opencl.h>
+#define CL_TARGET_OPENCL_VERSION 300
+#include "CL/cl.h"
+#include "CL/cl_ext.h"
 #include <stddef.h>
 
 /***************/

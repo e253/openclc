@@ -22,6 +22,7 @@ fi
 cp "$ROOTDIR/out/$TARGET-$MCPU/bin/openclc$EXE" "$ROOTDIR/release/$RELEASE_NAME/openclc$EXE"
 cp "$ROOTDIR/runtime/openclc_rt.c" "$ROOTDIR/release/$RELEASE_NAME/openclc_rt.c"
 cp "$ROOTDIR/runtime/openclc_rt.h" "$ROOTDIR/release/$RELEASE_NAME/openclc_rt.h"
+cp -r "$ROOTDIR/third_party/OpenCL-Headers/CL" "$ROOTDIR/release/$RELEASE_NAME/CL"
 
 if [ $ARCH_AND_OS = "x86_64-windows" ]; then
     7z a -tzip "$ROOTDIR/release/$RELEASE_NAME.zip" "$ROOTDIR/release/$RELEASE_NAME/*"

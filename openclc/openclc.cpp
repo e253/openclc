@@ -64,6 +64,8 @@ static cli::opt<std::string> OutputFileName("o", cli::desc("Output Filename"), c
 static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
+static cli::opt<std::string> CCBin("ccbin", cli::desc("Set Host C Compiler"), cli::init("zig cc"), cli::cat(OpenCLCOptions));
+static cli::opt<std::string> CXXBin("cxxbin", cli::desc("Set Host CXX Compiler"), cli::init("zig c++"), cli::cat(OpenCLCOptions));
 static cli::list<std::string> Warnings(cli::Prefix, "W", cli::desc("Enable or disable a warning in Clang"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::list<std::string> Includes(cli::Prefix, "I", cli::desc("Add a directory to be searched for header files"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::list<std::string> Defines(cli::Prefix, "D", cli::desc("Define a #define directive"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
@@ -371,6 +373,15 @@ public:
     bool VisitFunctionDecl(clang::FunctionDecl* Declaration)
     {
         clang::FullSourceLoc startFullLocation = Context->getFullLoc(Declaration->getBeginLoc());
+
+        // useful for debugging
+        // fmt::print("DEBUG: Found `{}` at {}:{}\n", Declaration->getNameAsString(), startFullLocation.getSpellingLineNumber(), startFullLocation.getSpellingColumnNumber());
+        // fmt::print("\tKernel? {}\n", (Declaration->getFunctionType()->getCallConv() == clang::CallingConv::CC_OpenCLKernel));
+        // fmt::print("\tvalid location? {}\n", startFullLocation.isValid());
+        // fmt::print("\tin system header? {}\n", startFullLocation.isInSystemHeader());
+        // fmt::print("\tret type? {}\n", Declaration->getReturnType().getAsString());
+        // fmt::print("\tDefined? {}\n", Declaration->isDefined());
+
         if (!startFullLocation.isValid() || startFullLocation.isInSystemHeader() || Declaration->getFunctionType()->getCallConv() != clang::CallingConv::CC_OpenCLKernel)
             return true;
 
@@ -453,6 +464,8 @@ public:
 /// Populatates global `KernelDecls` with Kernels found in the input source code
 void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
 {
+    assert(fileContents.size() > 0 && "Empty fileContents passed to `ExtractDeviceCode`.");
+
     clang::CompilerInstance clangInstance;
 
     llvm::MemoryBufferRef membufref = llvm::MemoryBufferRef(llvm::StringRef(fileContents), llvm::StringRef(fileName));
@@ -543,15 +556,19 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
         includes,
         langStd);
 
-    clangInstance.getPreprocessorOpts().addMacroDef("__SPIRV__");
-    std::unique_ptr<llvm::MemoryBuffer> opencl_c_h_buffer(new OpenCLBuiltinMemoryBuffer(opencl_c_h_data, opencl_c_h_size));
-    clangInstance.getPreprocessorOpts().Includes.push_back("opencl-c.h");
-    clang::FileEntryRef opencl_c_h_ref = clangInstance.getFileManager().getVirtualFileRef("include/opencl-c.h", opencl_c_h_buffer->getBufferSize(), 0);
-    clangInstance.getSourceManager().overrideFileContents(opencl_c_h_ref, std::move(opencl_c_h_buffer));
+    // This is form clspv and may not be neccessary
+    // clangInstance.getPreprocessorOpts().addMacroDef("__SPIRV__");
+    // std::unique_ptr<llvm::MemoryBuffer> opencl_c_h_buffer(new OpenCLBuiltinMemoryBuffer(opencl_c_h_data, opencl_c_h_size));
+    // clangInstance.getPreprocessorOpts().Includes.push_back("opencl-c.h");
+    // clang::FileEntryRef opencl_c_h_ref = clangInstance.getFileManager().getVirtualFileRef("include/opencl-c.h", opencl_c_h_buffer->getBufferSize(), 0);
+    // clangInstance.getSourceManager().overrideFileContents(opencl_c_h_ref, std::move(opencl_c_h_buffer));
 
     for (auto define : Defines) {
         clangInstance.getPreprocessorOpts().addMacroDef(define);
     }
+
+    clangInstance.getHeaderSearchOpts().UseStandardSystemIncludes = false;
+    clangInstance.getHeaderSearchOpts().UseStandardCXXIncludes = false;
 
     for (auto include : Includes) {
         clangInstance.getHeaderSearchOpts().AddPath(include, clang::frontend::After, false, false);
@@ -725,10 +742,14 @@ int main(int argc, const char** argv)
             deviceCode.append(fileContents.substr(start, end - start + 1));
         }
 
+        if (deviceCode.size() == 0) {
+            fmt::print(err, "openclc error (fatal): No device code found!\n", CCBin);
+            return 1;
+        }
         if (Verbose)
             fmt::print("Debug: Found Device Code '{}'\n", deviceCode);
 
-        // Compile device sources in `KernelDefinitions` to LLVM IR
+        // Compile device sources
         std::unique_ptr<llvm::Module> mod = SourceToModule(ctx, deviceCode, fileName);
 
         // Compile device code in LLVM IR to SPIR-V
@@ -782,7 +803,7 @@ int main(int argc, const char** argv)
         spvInitListStream << "};\n";
         std::string spvInitList = spvInitListStream.str();
 
-        // Write the new contents to ./openclc-tmp/openclc_gen.inputfile.[c,cc,cxx,cpp]
+        // Write the new contents to ./openclc-tmp/<input_file>.[c,cc,cxx,cpp]
         std::filesystem::create_directory("./openclc-tmp");
         std::string outFileName = std::string(std::filesystem::path(fileName).filename().string());
         if (outFileName.ends_with(".cl")) {
@@ -830,7 +851,7 @@ int main(int argc, const char** argv)
         hostCompilerInputs.push_back(' ');
     }
 
-    std::string hostCompilerInvocation = fmt::format("zig cc {} {} -I{} -lOpenCL -o {}", hostCompilerInputs, runtimeSource.string(), runtimeSourceDir.string(), OutputFileName);
+    std::string hostCompilerInvocation = fmt::format("{} {} {} -I{} -lOpenCL -o {}", CCBin, hostCompilerInputs, runtimeSource.string(), runtimeSourceDir.string(), OutputFileName);
     if (Verbose)
         fmt::print("Debug: Host compiler invocation '{}'\n", hostCompilerInvocation);
     std::system(hostCompilerInvocation.c_str());
