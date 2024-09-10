@@ -45,7 +45,7 @@
 #include <unistd.h>
 #endif
 
-#define OPENCLC_VERSION "0.0.3"
+#define OPENCLC_VERSION "0.0.4"
 
 namespace cli = llvm::cl;
 
@@ -65,7 +65,6 @@ static cli::opt<bool> Verbose("v", cli::desc("Verbose"), cli::cat(OpenCLCOptions
 static cli::opt<bool> Werror("Werror", cli::desc("Warnings are errors"), cli::cat(OpenCLCOptions));
 static cli::opt<bool> Wall("Wall", cli::desc("Enable all Clang warnings"), cli::cat(OpenCLCOptions));
 static cli::opt<std::string> CCBin("ccbin", cli::desc("Set Host C Compiler"), cli::init("zig cc"), cli::cat(OpenCLCOptions));
-static cli::opt<std::string> CXXBin("cxxbin", cli::desc("Set Host CXX Compiler"), cli::init("zig c++"), cli::cat(OpenCLCOptions));
 static cli::list<std::string> Warnings(cli::Prefix, "W", cli::desc("Enable or disable a warning in Clang"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::list<std::string> Includes(cli::Prefix, "I", cli::desc("Add a directory to be searched for header files"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
 static cli::list<std::string> Defines(cli::Prefix, "D", cli::desc("Define a #define directive"), cli::ZeroOrMore, cli::cat(OpenCLCOptions));
@@ -76,8 +75,6 @@ enum CLStd {
     CL_STD_120,
     CL_STD_200,
     CL_STD_300,
-    CL_CPP_STD,
-    CL_CPP_2021,
 };
 static cli::opt<CLStd> CLStd(
     "cl-std",
@@ -87,9 +84,7 @@ static cli::opt<CLStd> CLStd(
         clEnumValN(CL_STD_110, "CL1.1", "OpenCL C 1.1.0"),
         clEnumValN(CL_STD_120, "CL1.2", "OpenCL C 1.2.0"),
         clEnumValN(CL_STD_200, "CL2.0", "OpenCL C 2.0.0"),
-        clEnumValN(CL_STD_300, "CL3.0", "OpenCL C 3.0.0"),
-        clEnumValN(CL_CPP_STD, "CLC++", "OpenCL C++"),
-        clEnumValN(CL_CPP_STD, "CLC++2021", "OpenCL C++ 2021")),
+        clEnumValN(CL_STD_300, "CL3.0", "OpenCL C 3.0.0")),
     cli::init(CL_STD_120),
     cli::cat(OpenCLCOptions));
 static cli::opt<SPIRV::VersionNumber> SpvVersion(
@@ -168,7 +163,8 @@ struct OpenCLBuiltinMemoryBuffer final : public llvm::MemoryBuffer {
 /// Kills process with helpful messages if there are compilation errors.
 ///
 /// Credit: https://github.com/google/clspv/blob/2776a72da17dfffdd1680eeaff26a8bebdaa60f7/lib/Compiler.cpp#L1079
-std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
+std::unique_ptr<llvm::Module>
+SourceToModule(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
 {
     clang::CompilerInstance clangInstance;
 
@@ -178,10 +174,6 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
 
     // warnings to disable
     clangInstance.getDiagnosticOpts().Warnings.push_back("no-unsafe-buffer-usage");
-    if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
-        clangInstance.getDiagnosticOpts().Warnings.push_back("no-c++98-compat");
-        clangInstance.getDiagnosticOpts().Warnings.push_back("no-missing-prototypes");
-    }
     for (std::string warning : Warnings) {
         clangInstance.getDiagnosticOpts().Warnings.push_back(warning);
     }
@@ -247,22 +239,10 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
         case CL_STD_300:
             langStd = clang::LangStandard::lang_opencl30;
             break;
-        case CL_CPP_STD:
-            fmt::print(err, "Cannot specify CLC++ language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
-            exit(1);
-        case CL_CPP_2021:
-            fmt::print(err, "Cannot specify CLC++2021 language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
-            exit(1);
-        }
-    } else if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
-        lang = clang::Language::OpenCLCXX;
-        if (CLStd == CL_CPP_2021) {
-            langStd = clang::LangStandard::lang_openclcpp2021;
-        } else {
-            langStd = clang::LangStandard::lang_openclcpp10;
         }
     } else {
-        fmt::print(err, "Invalid file extension supplied. Use `.cl` or `.ocl` for OpenCL C and `.clpp` or `.clcpp` for OpenCL C++ source\n");
+        fmt::print(err, "Invalid file extension supplied. Use `.cl` or `.ocl` for OpenCL C. Note only C host code is allowed.\n");
+        std::exit(1);
     }
 
     std::vector<std::string> includes;
@@ -293,7 +273,7 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     bool success = action.BeginSourceFile(clangInstance, clSrcFile);
     if (!success) {
         fmt::print(err, "Preparation for file '{}' failed\n", fileName);
-        exit(1);
+        std::exit(1);
     }
 
     llvm::Error result = action.Execute();
@@ -305,7 +285,7 @@ std::unique_ptr<llvm::Module> SourceToModule(llvm::LLVMContext& ctx, std::string
     if ((consumer->getNumWarnings() > 0) || (consumer->getNumErrors() > 0))
         fmt::print(err, "{}", log);
     if (consumer->getNumErrors() > 0)
-        exit(1);
+        std::exit(1);
 
     return action.takeModule();
 }
@@ -387,7 +367,7 @@ public:
 
         if (Declaration->getReturnType().getAsString() != std::string("void")) {
             fmt::print(err, "Kernel Declaration `{}` has return type `{}`\n", Declaration->getNameAsString(), Declaration->getReturnType().getAsString());
-            exit(1);
+            std::exit(1);
         }
 
         std::vector<std::string> kParamTypes;
@@ -403,7 +383,7 @@ public:
                 paramType.replace(0, sizeof("__global ") - 1, "");
             if (paramType.find("__local") != std::string::npos) {
                 fmt::print("__local memory used in kernel `{}`, but dynamically allocated smem is not supported\n", Declaration->getNameAsString());
-                exit(1);
+                std::exit(1);
             }
 
             kParamTypes.push_back(paramType);
@@ -462,7 +442,7 @@ public:
 };
 
 /// Populatates global `KernelDecls` with Kernels found in the input source code
-void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
+std::string ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::string& fileName)
 {
     assert(fileContents.size() > 0 && "Empty fileContents passed to `ExtractDeviceCode`.");
 
@@ -473,10 +453,6 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
 
     // warnings to disable
     clangInstance.getDiagnosticOpts().Warnings.push_back("no-unsafe-buffer-usage");
-    if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
-        clangInstance.getDiagnosticOpts().Warnings.push_back("no-c++98-compat");
-        clangInstance.getDiagnosticOpts().Warnings.push_back("no-missing-prototypes");
-    }
 
     // diagnostics
     std::string log;
@@ -530,22 +506,10 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
         case CL_STD_300:
             langStd = clang::LangStandard::lang_opencl30;
             break;
-        case CL_CPP_STD:
-            fmt::print(err, "Cannot specify CLC++ language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
-            exit(1);
-        case CL_CPP_2021:
-            fmt::print(err, "Cannot specify CLC++2021 language standard with file extension `.cl` or `.ocl`. Use `.clpp` or `.clcpp` instead\n");
-            exit(1);
-        }
-    } else if (fileName.ends_with(".clpp") || fileName.ends_with(".clcpp")) {
-        lang = clang::Language::OpenCLCXX;
-        if (CLStd == CL_CPP_2021) {
-            langStd = clang::LangStandard::lang_openclcpp2021;
-        } else {
-            langStd = clang::LangStandard::lang_openclcpp10;
         }
     } else {
-        fmt::print(err, "Invalid file extension supplied. Use `.cl` or `.ocl` for OpenCL C and `.clpp` or `.clcpp` for OpenCL C++ source\n");
+        fmt::print(err, "Invalid file extension supplied. Use `.cl` or `.ocl`. Note that only C source code is allowed.\n");
+        std::exit(1);
     }
 
     std::vector<std::string> includes;
@@ -556,12 +520,7 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
         includes,
         langStd);
 
-    // This is form clspv and may not be neccessary
-    // clangInstance.getPreprocessorOpts().addMacroDef("__SPIRV__");
-    // std::unique_ptr<llvm::MemoryBuffer> opencl_c_h_buffer(new OpenCLBuiltinMemoryBuffer(opencl_c_h_data, opencl_c_h_size));
-    // clangInstance.getPreprocessorOpts().Includes.push_back("opencl-c.h");
-    // clang::FileEntryRef opencl_c_h_ref = clangInstance.getFileManager().getVirtualFileRef("include/opencl-c.h", opencl_c_h_buffer->getBufferSize(), 0);
-    // clangInstance.getSourceManager().overrideFileContents(opencl_c_h_ref, std::move(opencl_c_h_buffer));
+    clangInstance.getPreprocessorOpts().addMacroDef("__SPIRV__");
 
     for (auto define : Defines) {
         clangInstance.getPreprocessorOpts().addMacroDef(define);
@@ -582,7 +541,23 @@ void ExtractDeviceCode(llvm::LLVMContext& ctx, std::string& fileContents, std::s
     if ((consumer->getNumWarnings() > 0) || (consumer->getNumErrors() > 0))
         fmt::print(err, "{}", log);
     if (consumer->getNumErrors() > 0)
-        exit(1);
+        std::exit(1);
+
+    std::string deviceCode;
+    for (Kernel kDecl : KernelDecls) {
+        std::size_t start = kDecl.beginSourceOffset(fileContents);
+        std::size_t end = kDecl.endSourceOffset(fileContents);
+        deviceCode.append(fileContents.substr(start, end - start + 1));
+    }
+
+    if (deviceCode.size() == 0) {
+        fmt::print(err, "openclc error (fatal): No device code found!\n");
+        std::exit(1);
+    }
+    if (Verbose)
+        fmt::print("Debug: Found Device Code '{}'\n", deviceCode);
+
+    return deviceCode;
 }
 
 /// Transforms kernel invocations to regular function calls
@@ -673,20 +648,20 @@ std::filesystem::path GetRuntimeSourcesDir()
     DWORD _err = GetModuleFileName(nullptr, exePath, sizeof(exePath));
     if (_err == 0) {
         fmt::print(err, "GetModuleFileName failed with code {}\n", GetLastError());
-        exit(1);
+        std::exit(1);
     }
 #elif __APPLE__
     uint32_t exePathSize = sizeof(exePath);
     int _err = _NSGetExecutablePath(exePath, &exePathSize);
     if (_err == -1) {
         fmt::print(err, "_NSGetExecutablePath failed\n");
-        exit(1);
+        std::exit(1);
     }
 #else
     int _err = readlink("/proc/self/exe", exePath, sizeof(exePath));
     if (_err == -1) {
         fmt::print(err, "readlink(\"/proc/self/exe\") failed with exit code {}\n", _err);
-        exit(1);
+        std::exit(1);
     }
 #endif
 
@@ -723,31 +698,15 @@ int main(int argc, const char** argv)
     for (std::string fileName : InputFilenames) {
         // Read file contents
         std::ifstream inFileStream(fileName);
-        inFileStream.seekg(0, std::ios_base::end);
-        std::size_t fSize = inFileStream.tellg();
-        inFileStream.seekg(0);
+        std::size_t fSize = std::filesystem::file_size(fileName);
         std::string fileContents(fSize, '\0');
         inFileStream.read(&fileContents[0], fSize);
 
+        // Transform Cuda kernel declarations to standard c function calls
         fileContents = transformKernelInvocations(fileContents);
 
-        ExtractDeviceCode(ctx, fileContents, fileName);
-
-        // Get Kernel definition strings found in AST traversal
-        // TODO: Move to `ExtractDeviceCode` code
-        std::string deviceCode;
-        for (Kernel kDecl : KernelDecls) {
-            std::size_t start = kDecl.beginSourceOffset(fileContents);
-            std::size_t end = kDecl.endSourceOffset(fileContents);
-            deviceCode.append(fileContents.substr(start, end - start + 1));
-        }
-
-        if (deviceCode.size() == 0) {
-            fmt::print(err, "openclc error (fatal): No device code found!\n", CCBin);
-            return 1;
-        }
-        if (Verbose)
-            fmt::print("Debug: Found Device Code '{}'\n", deviceCode);
+        // Get Device Code
+        std::string deviceCode = ExtractDeviceCode(ctx, fileContents, fileName);
 
         // Compile device sources
         std::unique_ptr<llvm::Module> mod = SourceToModule(ctx, deviceCode, fileName);
@@ -810,10 +769,9 @@ int main(int argc, const char** argv)
             outFileName.replace(outFileName.size() - 3, 3, ".c");
         } else if (outFileName.ends_with(".ocl")) {
             outFileName.replace(outFileName.size() - 4, 4, ".c");
-        } else if (outFileName.ends_with(".clpp")) {
-            outFileName.replace(outFileName.size() - 5, 5, ".cpp");
         } else {
-            outFileName.replace(outFileName.size() - 6, 6, ".cpp");
+            fmt::print(err, "Wrong File Extension for file, {}", outFileName);
+            std::exit(1);
         }
         std::string outFilePath = fmt::format("./openclc-tmp/{}", outFileName);
         hostCompilerInputFiles.push_back(outFilePath);
@@ -836,11 +794,10 @@ int main(int argc, const char** argv)
             postProcessedOutFile.write(fileContents.c_str() + offset, fileContents.size() - offset);
         }
 
-        // Reset Global
         KernelDecls = std::vector<Kernel>();
     }
 
-    // Invoke host compiler on generated file
+    // Invoke host compiler on the generated file
     std::filesystem::path runtimeSourceDir = GetRuntimeSourcesDir();
     std::filesystem::path runtimeSource(runtimeSourceDir);
     runtimeSource.append("openclc_rt.c");
@@ -851,7 +808,20 @@ int main(int argc, const char** argv)
         hostCompilerInputs.push_back(' ');
     }
 
-    std::string hostCompilerInvocation = fmt::format("{} {} {} -I{} -lOpenCL -o {}", CCBin, hostCompilerInputs, runtimeSource.string(), runtimeSourceDir.string(), OutputFileName);
+    std::string includesAndDefines;
+    for (auto include : Includes) {
+        includesAndDefines.append("-I");
+        includesAndDefines.append(include);
+        includesAndDefines.push_back(' ');
+    }
+    for (auto define : Defines) {
+        includesAndDefines.append("-D");
+        includesAndDefines.append(define);
+        includesAndDefines.push_back(' ');
+    }
+
+    // TODO: pass on Defines, Includes, and Debug.
+    std::string hostCompilerInvocation = fmt::format("{} {} {} -I{} {} -lOpenCL -o {}", CCBin, hostCompilerInputs, runtimeSource.string(), runtimeSourceDir.string(), includesAndDefines, OutputFileName);
     if (Verbose)
         fmt::print("Debug: Host compiler invocation '{}'\n", hostCompilerInvocation);
     std::system(hostCompilerInvocation.c_str());

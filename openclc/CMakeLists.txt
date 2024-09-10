@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28.3)
 
-project(openclc VERSION 0.0.2 LANGUAGES CXX)
+project(openclc VERSION 0.0.4 LANGUAGES CXX)
 
 set(CLANG_LLVM_VERSION 18.1.7)
 
