@@ -6,7 +6,7 @@
 3. Automatic device discovery
 4. CUDA kernel invocation syntax
 
-These features make for far easier use of data parallel that exists in most devices.
+These features make for far easier use of data parallel hardware shipped with most devices.
 
 # Roadmap
 
